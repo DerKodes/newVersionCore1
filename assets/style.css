@@ -1,0 +1,327 @@
+:root {
+  --sidebar-width: 250px;
+  --primary-color: #4e73df;
+  --secondary-color: #f8f9fc;
+  --dark-bg: #121212;
+  --dark-card: #1e1e1e;
+  --text-light: #e0e0e0;
+  --text-dark: #212529;
+  --success-color: #1cc88a;
+  --info-color: #36b9cc;
+  --warning-color: #f6c23e;
+  --border-radius: 0.35rem;
+  --shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+  --transition-speed: 0.3s;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  overflow-x: hidden; /* Prevents horizontal scrollbar during animation */
+  background-color: var(--secondary-color);
+  color: var(--text-dark);
+  transition: background-color var(--transition-speed), color var(--transition-speed);
+}
+
+/* =========================================
+   SIDEBAR & LAYOUT (Fixed Logic)
+   ========================================= */
+.sidebar {
+  width: var(--sidebar-width);
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  background: #2c3e50;
+  color: white;
+  padding: 0;
+  transition: margin-left var(--transition-speed) ease;
+  z-index: 1000;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar .logo {
+  padding: 1.5rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar .logo img {
+  max-width: 100%;
+  height: auto;
+  max-height: 50px;
+}
+
+.system-name {
+  padding: 0.5rem 1.5rem;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.6);
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sidebar a {
+  display: block;
+  color: rgba(255,255,255,0.8);
+  padding: 1rem 1.5rem;
+  text-decoration: none;
+  border-left: 4px solid transparent;
+  transition: all 0.2s;
+  font-size: 0.95rem;
+}
+
+.sidebar a:hover,
+.sidebar a.active {
+  background-color: rgba(255,255,255,0.1);
+  color: white;
+  border-left: 4px solid var(--primary-color);
+}
+
+/* --- MAIN CONTENT LOGIC --- */
+.content {
+  /* Default: Sidebar is OPEN */
+  margin-left: var(--sidebar-width);
+  width: calc(100% - var(--sidebar-width)); /* Vital for header alignment */
+  padding: 25px;
+  transition: all var(--transition-speed) ease;
+}
+
+/* --- SIDEBAR CLOSED STATE --- */
+body.sidebar-closed .sidebar {
+  margin-left: -250px; /* Hide Sidebar off-screen */
+}
+
+body.sidebar-closed .content {
+  margin-left: 0;
+  width: 100%; /* Expand content to full width */
+}
+
+/* =========================================
+   HEADER & NAVIGATION
+   ========================================= */
+.header {
+  background-color: white;
+  padding: 1rem 1.5rem;
+  border-radius: var(--border-radius);
+  box-shadow: 0 .125rem .25rem rgba(0,0,0,.075);
+  margin-bottom: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.hamburger {
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  color: var(--text-dark);
+  transition: color 0.2s;
+}
+
+.hamburger:hover {
+  color: var(--primary-color);
+}
+
+.theme-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+/* =========================================
+   DASHBOARD CARDS (New)
+   ========================================= */
+.kpi-card {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  transition: transform 0.2s, box-shadow 0.2s;
+  overflow: hidden;
+}
+
+.kpi-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+}
+
+.kpi-icon {
+  font-size: 2.5rem;
+  opacity: 0.7;
+}
+
+/* Gradients */
+.bg-gradient-primary { background: linear-gradient(45deg, #4e73df, #224abe); color: white; }
+.bg-gradient-success { background: linear-gradient(45deg, #1cc88a, #13855c); color: white; }
+.bg-gradient-info    { background: linear-gradient(45deg, #36b9cc, #258391); color: white; }
+.bg-gradient-warning { background: linear-gradient(45deg, #f6c23e, #dda20a); color: white; }
+
+/* =========================================
+   COMPONENTS (Tables, Forms, Buttons)
+   ========================================= */
+/* Clean Table Styles */
+.table-responsive {
+  border-radius: var(--border-radius);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background-color: #f8f9fa;
+}
+
+/* Buttons */
+.btn {
+  border-radius: 50rem; /* Pill shape default */
+  padding: 0.375rem 1rem;
+  font-weight: 500;
+}
+
+.btn-primary { background-color: var(--primary-color); border-color: var(--primary-color); }
+.btn-primary:hover { background-color: #2e59d9; border-color: #2653d4; }
+
+/* Toggle Switch (Dark Mode) */
+.theme-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+}
+.theme-switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc; transition: .4s; border-radius: 20px;
+}
+.slider:before {
+  position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px;
+  background-color: white; transition: .4s; border-radius: 50%;
+}
+input:checked + .slider { background-color: var(--primary-color); }
+input:checked + .slider:before { transform: translateX(20px); }
+
+/* =========================================
+   DARK MODE (Global Overrides)
+   ========================================= */
+body.dark-mode {
+  background-color: #121212;
+  color: var(--text-light);
+}
+
+/* Sidebar in Dark Mode */
+body.dark-mode .sidebar {
+  background: #1a1a1a;
+  border-right-color: #333;
+}
+
+/* Header & Content */
+body.dark-mode .header {
+  background-color: var(--dark-card);
+  border-bottom-color: #333;
+  color: var(--text-light);
+}
+
+body.dark-mode .hamburger {
+  color: var(--text-light);
+}
+
+/* Bootstrap Component Overrides for Dark Mode */
+body.dark-mode .card {
+  background-color: var(--dark-card);
+  border-color: #333;
+  color: var(--text-light);
+}
+
+body.dark-mode .card-header {
+  background-color: rgba(255,255,255,0.05);
+  border-bottom-color: #333;
+  color: var(--text-light);
+}
+
+body.dark-mode .table {
+  color: var(--text-light);
+  border-color: #333;
+}
+
+body.dark-mode .table-light {
+  background-color: #2c2c2c;
+  color: var(--text-light);
+}
+
+body.dark-mode .table-hover tbody tr:hover {
+  color: var(--text-light);
+  background-color: rgba(255,255,255,0.075);
+}
+
+/* Form Inputs */
+body.dark-mode .form-control, 
+body.dark-mode .form-select {
+  background-color: #2a2a2a;
+  border-color: #444;
+  color: var(--text-light);
+}
+
+body.dark-mode .form-control:focus {
+  background-color: #2a2a2a;
+  border-color: var(--primary-color);
+  color: var(--text-light);
+}
+
+/* Dropdowns */
+body.dark-mode .dropdown-menu {
+  background-color: var(--dark-card);
+  border-color: #333;
+}
+body.dark-mode .dropdown-item {
+  color: var(--text-light);
+}
+body.dark-mode .dropdown-item:hover {
+  background-color: rgba(255,255,255,0.1);
+}
+
+body.dark-mode .list-group-item {
+  background-color: var(--dark-card);
+  color: var(--text-light);
+  border-color: #333;
+}
+
+/* Modal */
+body.dark-mode .modal-content {
+  background-color: var(--dark-card);
+  color: var(--text-light);
+  border-color: #444;
+}
+body.dark-mode .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* =========================================
+   RESPONSIVE DESIGN
+   ========================================= */
+@media (max-width: 768px) {
+  /* On Mobile: Sidebar is hidden by default */
+  .sidebar {
+    margin-left: -250px;
+  }
+  .content {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  /* When Toggled Open on Mobile */
+  body.sidebar-closed .sidebar {
+    margin-left: 0; /* Show Sidebar */
+  }
+  
+  /* Optional: Overlay effect could be added here for mobile */
+}

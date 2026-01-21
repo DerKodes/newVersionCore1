@@ -10,7 +10,6 @@ function initEmbeddedMap(origin, destination) {
   }
 
   // 2. Initialize Leaflet
-  // Ensure the div with id="shipmentMap" exists before running this
   var mapContainer = document.getElementById("shipmentMap");
   if (!mapContainer) {
     console.error("Map container #shipmentMap not found!");
@@ -23,6 +22,16 @@ function initEmbeddedMap(origin, destination) {
     maxZoom: 19,
     attribution: "© OpenStreetMap",
   }).addTo(map);
+
+  // ============================================================
+  // 🟢 NEW: CUSTOM TRUCK ICON CONFIGURATION
+  // ============================================================
+  var truckIcon = L.icon({
+    iconUrl: "../assets/images/truck-icon.png", // Ensure this file exists!
+    iconSize: [40, 40], // Size of the icon
+    iconAnchor: [20, 20], // Point of the icon which will correspond to marker's location
+    popupAnchor: [0, -20], // Point from which the popup should open relative to the iconAnchor
+  });
 
   // 3. Geocode and Draw Route
   Promise.all([geocodeWithFallback(origin), geocodeWithFallback(destination)])
@@ -47,13 +56,27 @@ function initEmbeddedMap(origin, destination) {
         draggableWaypoints: false,
         fitSelectedRoutes: true,
         show: false, // Hide text instructions
+
+        // ============================================================
+        // 🟢 NEW: ENHANCED POLYLINE STYLE
+        // ============================================================
         lineOptions: {
-          styles: [{ color: "blue", opacity: 0.7, weight: 5 }],
+          styles: [
+            // A thicker, darker blue line for better visibility
+            { color: "#0d6efd", opacity: 0.8, weight: 6 },
+          ],
         },
+
         createMarker: function (i, wp) {
           let label =
             i === 0 ? "Origin: " + origin : "Destination: " + destination;
-          return L.marker(wp.latLng).bindPopup(label).openPopup();
+
+          // ============================================================
+          // 🟢 NEW: APPLY CUSTOM ICON HERE
+          // ============================================================
+          return L.marker(wp.latLng, { icon: truckIcon })
+            .bindPopup(label)
+            .openPopup();
         },
       }).addTo(map);
     })
@@ -89,7 +112,6 @@ function geocode(address) {
   if (!address || address === "0") return Promise.reject("Invalid Address");
 
   // Use our PHP Proxy to avoid CORS errors
-  // Make sure this path points correctly to your API folder relative to where the script is run
   let url = "../api/geocode.php?q=" + encodeURIComponent(address);
 
   return fetch(url)

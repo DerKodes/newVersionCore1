@@ -78,7 +78,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && empty($errorMsg)) {
         $_SESSION['role'] = $user['role'];
         $_SESSION['login_success'] = true;
 
-        header("Location: ../public/dashboard.php");
+        header("Location: ../public/dashboard.php?login_success=1");
         exit();
       } else {
         // FAIL: Wrong Password
@@ -104,6 +104,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && empty($errorMsg)) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login - SLATE System</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
 
   <style>
     /* Base Styles */

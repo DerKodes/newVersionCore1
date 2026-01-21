@@ -1,12 +1,12 @@
 document.addEventListener("DOMContentLoaded", function () {
   // =========================================================
-  // 1. INJECT LOADER HTML & CSS (Updated Animation)
+  // 1. INJECT LOADER HTML & CSS (Professional "Breathing" Effect)
   // =========================================================
   const loaderHTML = `
       <div id="global-loader">
           <div class="loader-content">
               <img src="../assets/slate.png" alt="Loading..." class="loader-logo">
-              <div class="loader-text">SYNCING...</div>
+              <div class="loader-text">SYNCING DATA...</div>
           </div>
       </div>
   `;
@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", function () {
       #global-loader {
           position: fixed;
           top: 0; left: 0; width: 100%; height: 100%;
-          background-color: #2b2b2ba2; /* Always White */
+          background-color: #ffffff; /* FORCE WHITE BACKGROUND */
           z-index: 99999;
           display: flex; justify-content: center; align-items: center;
           transition: opacity 0.5s ease, visibility 0.5s;
@@ -33,22 +33,24 @@ document.addEventListener("DOMContentLoaded", function () {
           align-items: center;
       }
 
-      /* LOGO ANIMATION (PULSE + BLUR) */
+      /* LOGO ANIMATION (BREATHING + BLUR - NO ROTATION) */
       .loader-logo {
-          width: 80px;
+          width: 85px;
           height: auto;
-          margin-bottom: 15px;
-          animation: logo-pulse 2s infinite ease-in-out;
+          margin-bottom: 20px;
+          animation: logo-breathe 2.5s infinite ease-in-out;
       }
 
       /* TEXT STYLE */
       .loader-text {
           font-family: 'Segoe UI', sans-serif;
           font-weight: 700;
-          font-size: 14px;
-          letter-spacing: 2px;
+          font-size: 13px;
+          letter-spacing: 3px;
           color: #0d6efd; /* Primary Blue */
-          animation: text-blink 1.5s infinite ease-in-out;
+          text-transform: uppercase;
+          opacity: 0.8;
+          animation: text-fade 2.5s infinite ease-in-out;
       }
 
       /* HIDE STATE */
@@ -57,28 +59,16 @@ document.addEventListener("DOMContentLoaded", function () {
           visibility: hidden;
       }
 
-      /* ANIMATIONS */
-      @keyframes logo-pulse {
-          0% { 
-              transform: scale(1); 
-              filter: blur(0px); 
-              opacity: 1;
-          }
-          50% { 
-              transform: scale(1.1); 
-              filter: blur(2px); /* Slight Blur Effect */
-              opacity: 0.8;
-          }
-          100% { 
-              transform: scale(1); 
-              filter: blur(0px); 
-              opacity: 1;
-          }
+      /* KEYFRAMES */
+      @keyframes logo-breathe {
+          0% { transform: scale(1); filter: blur(0px); opacity: 1; }
+          50% { transform: scale(1.08); filter: blur(1.5px); opacity: 0.85; } /* Slight Blur */
+          100% { transform: scale(1); filter: blur(0px); opacity: 1; }
       }
 
-      @keyframes text-blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+      @keyframes text-fade {
+          0%, 100% { opacity: 0.8; }
+          50% { opacity: 0.4; }
       }
   `;
   document.head.appendChild(loaderStyle);
@@ -118,18 +108,56 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // =========================================
-  // 4. SWEETALERT: SUCCESS TOASTS
+  // 4. ALERTS & TOASTS MANAGER
   // =========================================
   const urlParams = new URLSearchParams(window.location.search);
+  const isDarkMode = document.body.classList.contains("dark-mode");
 
+  // A. STANDARD TOAST (For updates, creation)
   const Toast = Swal.mixin({
     toast: true,
     position: "top-end",
     showConfirmButton: false,
     timer: 3000,
     timerProgressBar: true,
+    background: isDarkMode ? "#1e1e1e" : "#fff",
+    color: isDarkMode ? "#fff" : "#333",
   });
 
+  // B. ✨ PROFESSIONAL LOGIN SUCCESS ALERT (Center Screen)
+  if (urlParams.has("login_success")) {
+    // Try to grab the user's name from the header (if it exists in your PHP DOM)
+    // Assumes structure: <span class="..."><?= $_SESSION['full_name'] ?></span>
+    const userNameElement = document.querySelector(".dropdown-toggle span");
+    const userName = userNameElement
+      ? userNameElement.innerText.trim()
+      : "User";
+
+    Swal.fire({
+      title: `<span style="font-weight: 300;">Welcome back,</span> <br><b>${userName}</b>`,
+      html: '<span class="text-muted" style="font-size: 0.9rem;">SLATE FREIGHT SYSTEM IS READY</span>',
+      imageUrl: "../assets/slate.png",
+      imageWidth: 80,
+      imageHeight: "auto",
+      imageAlt: "Slate Logo",
+
+      timer: 2500, // Auto close after 2.5 seconds
+      timerProgressBar: true,
+      showConfirmButton: false,
+
+      // Theme Styling
+      background: isDarkMode ? "#1e1e1e" : "#ffffff",
+      color: isDarkMode ? "#e0e0e0" : "#333333",
+      backdrop: `rgba(0,0,0,0.4)`, // Dim background slightly
+      padding: "2rem",
+      customClass: {
+        popup: "animated fadeInDown", // Smooth entry
+      },
+    });
+    cleanUrl();
+  }
+
+  // C. STANDARD ALERTS
   if (urlParams.has("created")) {
     Toast.fire({ icon: "success", title: "Record created successfully!" });
     cleanUrl();
@@ -156,12 +184,12 @@ document.addEventListener("DOMContentLoaded", function () {
   // =========================================================
   const loader = document.getElementById("global-loader");
 
-  // Hide loader after a short delay
+  // Hide loader after delay
   setTimeout(() => {
     loader.classList.add("hidden");
-  }, 600);
+  }, 700); // 0.7s to let the user see the branding
 
-  // Show loader when clicking valid links
+  // Show loader on navigation
   document.querySelectorAll("a").forEach((link) => {
     link.addEventListener("click", function (e) {
       const target = this.getAttribute("href");
@@ -193,59 +221,36 @@ window.addEventListener("pageshow", function (event) {
 });
 
 // =========================================
-// 7. GLOBAL SWEETALERT CONFIRMATIONS
+// 7. GLOBAL CONFIRMATIONS
 // =========================================
 
 function confirmLogout() {
-  // Check if Dark Mode is active to style the alert
   const isDarkMode = document.body.classList.contains("dark-mode");
 
   Swal.fire({
     title: "Ready to leave?",
-    text: "Your session will be closed securely.",
-
-    // BRANDING: Use your logo instead of a generic icon
+    text: "Session will be closed.",
     imageUrl: "../assets/slate.png",
-    imageWidth: 70,
-    imageHeight: "auto",
-    imageAlt: "System Logo",
+    imageWidth: 60,
 
-    // THEME ADAPTATION
     background: isDarkMode ? "#1e1e1e" : "#ffffff",
     color: isDarkMode ? "#e0e0e0" : "#333333",
 
-    // BUTTONS & UX
     showCancelButton: true,
-    confirmButtonColor: "#dc3545", // Red (Bootstrap Danger)
-    cancelButtonColor: "#6c757d", // Grey (Bootstrap Secondary)
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
     confirmButtonText: "Sign Out",
-    cancelButtonText: "Stay Here",
-    reverseButtons: true, // Puts 'Sign Out' on the right
-    focusCancel: true, // Focuses 'Stay Here' by default (prevents accidents)
-
-    // ANIMATION
-    showClass: {
-      popup: "swal2-show",
-      backdrop: "swal2-backdrop-show",
-      icon: "swal2-icon-show",
-    },
-    hideClass: {
-      popup: "swal2-hide",
-      backdrop: "swal2-backdrop-hide",
-      icon: "swal2-icon-hide",
-    },
+    cancelButtonText: "Stay",
+    reverseButtons: true,
+    focusCancel: true,
   }).then((result) => {
     if (result.isConfirmed) {
-      // Trigger Loader
       const loader = document.getElementById("global-loader");
       if (loader) {
-        // Change text to indicate logging out
-        const loaderText = loader.querySelector(".loader-text");
-        if (loaderText) loaderText.textContent = "SIGNING OUT...";
+        // Change text for logout
+        loader.querySelector(".loader-text").innerText = "CLOSING SESSION...";
         loader.classList.remove("hidden");
       }
-
-      // Redirect
       window.location.href = "../login/logout.php";
     }
   });
@@ -273,4 +278,3 @@ function confirmFormAction(event, title = "Are you sure?", icon = "warning") {
     }
   });
 }
-// =========================================

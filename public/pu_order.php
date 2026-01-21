@@ -101,6 +101,7 @@ if (isset($_POST['update_status'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
+    <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
 
     <style>
         /* Global Font & Transition */
@@ -251,242 +252,289 @@ if (isset($_POST['update_status'])) {
             background-color: #333;
             color: #fff;
         }
+
+        /* MODAL DARK MODE FIXES */
+        body.dark-mode .modal-content {
+            background-color: var(--dark-card);
+            color: var(--dark-text);
+            border: 1px solid var(--dark-border);
+        }
+
+        body.dark-mode .modal-header {
+            border-bottom: 1px solid var(--dark-border);
+        }
+
+        body.dark-mode .modal-footer {
+            border-top: 1px solid var(--dark-border);
+        }
+
+        body.dark-mode .btn-close {
+            filter: invert(1) grayscale(100%) brightness(200%);
+        }
     </style>
 </head>
 
 <body>
 
-    <div class="sidebar" id="sidebar">
-        <div class="logo"><img src="../assets/slate.png" alt="Logo"></div>
-        <div class="system-name">CORE TRANSACTION 1</div>
-        <a href="dashboard.php"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
-        <a href="pu_order.php" class="active"><i class="bi bi-cart me-2"></i> Purchase Orders</a>
-        <a href="shipments.php"><i class="bi bi-truck me-2"></i> Shipment Booking</a>
-        <a href="conso.php"><i class="bi bi-boxes me-2"></i> Consolidation</a>
-        <a href="hmbl.php"><i class="bi bi-file-earmark-pdf me-2"></i> BL Generator</a>
-    </div>
+    <body>
 
-    <div class="content" id="content">
+        <div class="sidebar" id="sidebar">
+            <div class="logo"><img src="../assets/slate.png" alt="Logo"></div>
+            <div class="system-name">CORE TRANSACTION 1</div>
+            <a href="dashboard.php"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
+            <a href="pu_order.php" class="active"><i class="bi bi-cart me-2"></i> Purchase Orders</a>
+            <a href="shipments.php"><i class="bi bi-truck me-2"></i> Shipment Booking</a>
+            <a href="conso.php"><i class="bi bi-boxes me-2"></i> Consolidation</a>
+            <a href="hmbl.php"><i class="bi bi-file-earmark-pdf me-2"></i> BL Generator</a>
+        </div>
 
-        <div class="header">
-            <div class="d-flex align-items-center">
-                <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
-                <h2 class="mb-0 ms-2" id="pageTitle">Purchase Orders</h2>
+        <div class="content" id="content">
+
+            <div class="header">
+                <div class="d-flex align-items-center">
+                    <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
+                    <h2 class="mb-0 ms-2" id="pageTitle">Purchase Orders</h2>
+                </div>
+
+                <div class="theme-toggle-container">
+                    <div class="d-flex align-items-center me-3">
+                        <span class="theme-label me-2 small">Dark Mode</span>
+                        <label class="theme-switch">
+                            <input type="checkbox" id="themeToggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i>
+                            <span class="d-none d-md-block small"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                            <li><a class="dropdown-item" href="#">Settings</a></li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()">Logout</a></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
 
-            <div class="theme-toggle-container">
-                <div class="d-flex align-items-center me-3">
-                    <span class="theme-label me-2 small">Dark Mode</span>
-                    <label class="theme-switch">
-                        <input type="checkbox" id="themeToggle">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                <div class="dropdown">
-                    <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle"></i>
-                        <span class="d-none d-md-block small"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
+            <div class="container-fluid mt-4">
+
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="text-secondary fw-bold mb-0">Order Management</h4>
+                    <button type="button" class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#createOrderModal">
+                        <i class="bi bi-plus-lg me-2"></i> Create New Order/Dummy Form
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow">
-                        <li><a class="dropdown-item" href="#">Settings</a></li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()">Logout</a></li>
-                    </ul>
+                </div>
+
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-list-ul me-2"></i> Recent Orders</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <?php $pos = $conn->query("SELECT * FROM purchase_orders ORDER BY created_at DESC"); ?>
+                            <table class="table table-hover align-middle" id="poTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Contract</th>
+                                        <th>Sender</th>
+                                        <th>Receiver</th>
+                                        <th>Status</th>
+                                        <th>Mode</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php while ($po = $pos->fetch_assoc()) { ?>
+                                        <tr>
+                                            <td class="fw-bold text-primary"><?= $po['contract_number'] ?></td>
+                                            <td><?= $po['sender_name'] ?></td>
+                                            <td><?= $po['receiver_name'] ?></td>
+                                            <td>
+                                                <?php
+                                                $badgeClass = 'secondary';
+                                                $icon = 'bi-circle';
+                                                if ($po['status'] == 'APPROVED') {
+                                                    $badgeClass = 'success';
+                                                    $icon = 'bi-check-circle';
+                                                }
+                                                if ($po['status'] == 'REJECTED') {
+                                                    $badgeClass = 'danger';
+                                                    $icon = 'bi-x-circle';
+                                                }
+                                                if ($po['status'] == 'BOOKED') {
+                                                    $badgeClass = 'info text-dark';
+                                                    $icon = 'bi-journal-check';
+                                                }
+                                                ?>
+                                                <span class="badge bg-<?= $badgeClass ?> rounded-pill px-3">
+                                                    <i class="bi <?= $icon ?> me-1"></i> <?= $po['status'] ?>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-light text-dark border"><?= $po['transport_mode'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?php if ($_SESSION['role'] === 'ADMIN' && $po['status'] === 'PENDING') { ?>
+                                                    <form method="POST" style="display:inline;">
+                                                        <input type="hidden" name="po_id" value="<?= $po['po_id'] ?>">
+                                                        <button name="status" value="APPROVED" class="btn btn-outline-success btn-sm rounded-circle shadow-sm" title="Approve">
+                                                            <i class="bi bi-check-lg"></i>
+                                                        </button>
+                                                        <button name="status" value="REJECTED" class="btn btn-outline-danger btn-sm rounded-circle shadow-sm" title="Reject">
+                                                            <i class="bi bi-x-lg"></i>
+                                                        </button>
+                                                        <input type="hidden" name="update_status">
+                                                    </form>
+                                                <?php } ?>
+
+                                                <?php if ($_SESSION['role'] === 'ADMIN' && $po['status'] === 'APPROVED') { ?>
+                                                    <form method="POST" action="shipments.php" style="display:inline;">
+                                                        <input type="hidden" name="po_id" value="<?= $po['po_id'] ?>">
+                                                        <button name="create_shipment" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm">
+                                                            Create Shipment <i class="bi bi-arrow-right ms-1"></i>
+                                                        </button>
+                                                    </form>
+                                                <?php } ?>
+
+                                                <?php if ($po['status'] === 'BOOKED') { ?>
+                                                    <span class="text-muted small"><i class="bi bi-lock-fill"></i> Processed</span>
+                                                <?php } ?>
+                                            </td>
+                                        </tr>
+                                    <?php } ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        <div class="modal fade" id="createOrderModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title fw-bold text-primary"><i class="bi bi-plus-circle me-2"></i> Create New Purchase Order</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="POST">
+                        <div class="modal-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label small text-muted">Sender Details</label>
+                                    <input name="sender_name" class="form-control mb-2" placeholder="Sender Name" required>
+                                    <input name="sender_contact" class="form-control" placeholder="Contact Number" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label small text-muted">Receiver Details</label>
+                                    <input name="receiver_name" class="form-control mb-2" placeholder="Receiver Name" required>
+                                    <input name="receiver_contact" class="form-control" placeholder="Contact Number" required>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Origin Address</label>
+                                    <input type="text" name="origin_address" class="form-control" placeholder="Complete address..." required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Destination Address</label>
+                                    <input type="text" name="destination_address" class="form-control" placeholder="Complete address..." required>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label small text-muted">Weight (kg)</label>
+                                    <input name="weight" type="number" step="0.01" class="form-control" placeholder="0.00" required>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label small text-muted">Type</label>
+                                    <input name="package_type" class="form-control" placeholder="e.g. Box" required>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label small text-muted">Transport</label>
+                                    <select name="transport_mode" class="form-select" required>
+                                        <option value="">Select Mode</option>
+                                        <option value="SEA">Sea Freight</option>
+                                        <option value="AIR">Air Freight</option>
+                                        <option value="LAND">Land Freight</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label small text-muted">Description</label>
+                                <textarea name="package_description" class="form-control" placeholder="Description / Remarks" rows="2"></textarea>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-3 mb-3">
+                                    <label class="form-label small text-muted">Payment</label>
+                                    <select name="payment_method" class="form-select">
+                                        <option value="CASH">Cash</option>
+                                        <option value="BANK">Bank Transfer</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label class="form-label small text-muted">Bank Name</label>
+                                    <input name="bank_name" class="form-control" placeholder="If Bank">
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label class="form-label small text-muted">Distance (KM)</label>
+                                    <input name="distance_km" type="number" step="0.01" class="form-control" placeholder="0.00">
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label class="form-label small text-muted">Price (PHP)</label>
+                                    <input name="price" type="number" step="0.01" class="form-control" placeholder="0.00">
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label small text-muted">SLA</label>
+                                    <input name="sla_agreement" class="form-control" placeholder="e.g. 24h">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label small text-muted">AI ETA</label>
+                                    <input name="ai_estimated_time" class="form-control" placeholder="AI ETA">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label small text-muted">Target Date</label>
+                                    <input type="date" name="target_delivery_date" class="form-control">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <button name="create_po" class="btn btn-primary px-4"><i class="bi bi-check-lg me-2"></i> Submit Order</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
 
-        <div class="card shadow-sm border-0 mb-4 mt-4">
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-plus-circle me-2"></i> Create New Order</h5>
-            </div>
-            <div class="card-body">
-                <form method="POST">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label small text-muted">Sender Details</label>
-                            <input name="sender_name" class="form-control mb-2" placeholder="Sender Name" required>
-                            <input name="sender_contact" class="form-control" placeholder="Contact Number" required>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label small text-muted">Receiver Details</label>
-                            <input name="receiver_name" class="form-control mb-2" placeholder="Receiver Name" required>
-                            <input name="receiver_contact" class="form-control" placeholder="Contact Number" required>
-                        </div>
-                    </div>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+        <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+        <script src="../assets/main.js"></script>
 
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Origin Address</label>
-                            <input type="text" name="origin_address" class="form-control" placeholder="Complete address..." required>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Destination Address</label>
-                            <input type="text" name="destination_address" class="form-control" placeholder="Complete address..." required>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <input name="weight" type="number" step="0.01" class="form-control" placeholder="Weight (kg)" required>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <input name="package_type" class="form-control" placeholder="Package Type" required>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <select name="transport_mode" class="form-select" required>
-                                <option value="">Select Mode</option>
-                                <option value="SEA">Sea Freight</option>
-                                <option value="AIR">Air Freight</option>
-                                <option value="LAND">Land Freight</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <textarea name="package_description" class="form-control mb-3" placeholder="Description / Remarks"></textarea>
-
-                    <div class="row">
-                        <div class="col-md-3 mb-3">
-                            <select name="payment_method" class="form-select">
-                                <option value="CASH">Cash</option>
-                                <option value="BANK">Bank Transfer</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <input name="bank_name" class="form-control" placeholder="Bank Name (If Bank)">
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <input name="distance_km" type="number" step="0.01" class="form-control" placeholder="Distance (KM)">
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <input name="price" type="number" step="0.01" class="form-control" placeholder="Price (PHP)">
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <input name="sla_agreement" class="form-control" placeholder="SLA (e.g. 24h)">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <input name="ai_estimated_time" class="form-control" placeholder="AI ETA">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <input type="date" name="target_delivery_date" class="form-control">
-                        </div>
-                    </div>
-
-                    <div class="text-end">
-                        <button name="create_po" class="btn btn-primary px-4 shadow-sm"><i class="bi bi-check-lg me-2"></i> Submit Order</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-list-ul me-2"></i> Recent Orders</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <?php $pos = $conn->query("SELECT * FROM purchase_orders ORDER BY created_at DESC"); ?>
-                    <table class="table table-hover align-middle" id="poTable">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Contract</th>
-                                <th>Sender</th>
-                                <th>Receiver</th>
-                                <th>Status</th>
-                                <th>Mode</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php while ($po = $pos->fetch_assoc()) { ?>
-                                <tr>
-                                    <td class="fw-bold text-primary"><?= $po['contract_number'] ?></td>
-                                    <td><?= $po['sender_name'] ?></td>
-                                    <td><?= $po['receiver_name'] ?></td>
-                                    <td>
-                                        <?php
-                                        $badgeClass = 'secondary';
-                                        $icon = 'bi-circle';
-                                        if ($po['status'] == 'APPROVED') {
-                                            $badgeClass = 'success';
-                                            $icon = 'bi-check-circle';
-                                        }
-                                        if ($po['status'] == 'REJECTED') {
-                                            $badgeClass = 'danger';
-                                            $icon = 'bi-x-circle';
-                                        }
-                                        if ($po['status'] == 'BOOKED') {
-                                            $badgeClass = 'info text-dark';
-                                            $icon = 'bi-journal-check';
-                                        }
-                                        ?>
-                                        <span class="badge bg-<?= $badgeClass ?> rounded-pill px-3">
-                                            <i class="bi <?= $icon ?> me-1"></i> <?= $po['status'] ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-light text-dark border"><?= $po['transport_mode'] ?></span>
-                                    </td>
-                                    <td>
-                                        <?php if ($_SESSION['role'] === 'ADMIN' && $po['status'] === 'PENDING') { ?>
-                                            <form method="POST" style="display:inline;">
-                                                <input type="hidden" name="po_id" value="<?= $po['po_id'] ?>">
-                                                <button name="status" value="APPROVED" class="btn btn-outline-success btn-sm rounded-circle shadow-sm" title="Approve">
-                                                    <i class="bi bi-check-lg"></i>
-                                                </button>
-                                                <button name="status" value="REJECTED" class="btn btn-outline-danger btn-sm rounded-circle shadow-sm" title="Reject">
-                                                    <i class="bi bi-x-lg"></i>
-                                                </button>
-                                                <input type="hidden" name="update_status">
-                                            </form>
-                                        <?php } ?>
-
-                                        <?php if ($_SESSION['role'] === 'ADMIN' && $po['status'] === 'APPROVED') { ?>
-                                            <form method="POST" action="shipments.php" style="display:inline;">
-                                                <input type="hidden" name="po_id" value="<?= $po['po_id'] ?>">
-                                                <button name="create_shipment" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm">
-                                                    Create Shipment <i class="bi bi-arrow-right ms-1"></i>
-                                                </button>
-                                            </form>
-                                        <?php } ?>
-
-                                        <?php if ($po['status'] === 'BOOKED') { ?>
-                                            <span class="text-muted small"><i class="bi bi-lock-fill"></i> Processed</span>
-                                        <?php } ?>
-                                    </td>
-                                </tr>
-                            <?php } ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-    <script src="../assets/main.js"></script>
-
-    <script>
-        $(document).ready(function() {
-            $('#poTable').DataTable({
-                "order": [
-                    [0, "desc"]
-                ]
+        <script>
+            $(document).ready(function() {
+                $('#poTable').DataTable({
+                    "order": [
+                        [0, "desc"]
+                    ]
+                });
             });
-        });
-    </script>
+        </script>
 
-</body>
+    </body>
 
 </html>

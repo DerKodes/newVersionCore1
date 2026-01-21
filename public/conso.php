@@ -5,10 +5,13 @@ include "../api/db.php";
 include "../includes/auth_check.php";
 include "../includes/role_check.php";
 
-requireAdmin();
+// 1. ROBUST ADMIN CHECK
+// Get role safely, trim whitespace, and convert to lowercase for comparison
+$role = isset($_SESSION['role']) ? strtolower(trim($_SESSION['role'])) : '';
+$isAdmin = ($role === 'admin' || $role === 'administrator');
 
 /* ================= CREATE CONSOLIDATION ================= */
-if (isset($_POST['create_consolidation'])) {
+if ($isAdmin && isset($_POST['create_consolidation'])) {
 
     $vehicle_set = $_POST['vehicle_set'] ?? 'A';
 
@@ -69,7 +72,7 @@ if (isset($_POST['create_consolidation'])) {
 }
 
 /* ================= DECONSOLIDATE ================= */
-if (isset($_POST['deconsolidate'])) {
+if ($isAdmin && isset($_POST['deconsolidate'])) {
     $conso_id = (int) $_POST['consolidation_id'];
     $reason = trim($_POST['reason']);
     $user_id = $_SESSION['user_id'];
@@ -107,7 +110,7 @@ if (isset($_POST['deconsolidate'])) {
 function getStatusBadge($status)
 {
     if ($status === 'OPEN') return '<span class="badge rounded-pill bg-success">OPEN</span>';
-    if ($status === 'READY_TO_DISPATCH') return '<span class="badge rounded-pill bg-warning text-dark">READY</span>';
+    if ($status === 'DISPATCH' || $status === 'READY_TO_DISPATCH') return '<span class="badge rounded-pill bg-warning text-dark">READY</span>'; // Handle both old and new status
     if ($status === 'DECONSOLIDATED') return '<span class="badge rounded-pill bg-secondary">DECONSOLIDATED</span>';
     return '<span class="badge bg-light text-dark border">' . $status . '</span>';
 }
@@ -123,6 +126,7 @@ function getStatusBadge($status)
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
+    <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
 
     <style>
         body {
@@ -152,7 +156,6 @@ function getStatusBadge($status)
             }
         }
 
-        /* 🟢 STICKY HEADER FIX */
         .header {
             position: sticky;
             top: 0;
@@ -166,7 +169,6 @@ function getStatusBadge($status)
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
 
-        /* Dark Mode Variables */
         :root {
             --dark-bg: #121212;
             --dark-card: #1e1e1e;
@@ -176,13 +178,11 @@ function getStatusBadge($status)
             --dark-hover: rgba(255, 255, 255, 0.05);
         }
 
-        /* Dark Mode Styles */
         body.dark-mode {
             background-color: var(--dark-bg) !important;
             color: var(--dark-text) !important;
         }
 
-        /* Dark Mode Sticky Header */
         body.dark-mode .header {
             background-color: var(--dark-card);
             border-bottom: 1px solid var(--dark-border);
@@ -261,6 +261,14 @@ function getStatusBadge($status)
         body.dark-mode .text-muted {
             color: #a0a0a0 !important;
         }
+
+        /* Access Denied Blur */
+        .access-denied-blur {
+            filter: blur(8px);
+            pointer-events: none;
+            user-select: none;
+            opacity: 0.6;
+        }
     </style>
 </head>
 
@@ -276,7 +284,7 @@ function getStatusBadge($status)
         <a href="hmbl.php"><i class="bi bi-file-earmark-pdf me-2"></i> BL Generator</a>
     </div>
 
-    <div class="content" id="content">
+    <div class="content <?= !$isAdmin ? 'access-denied-blur' : '' ?>" id="content">
         <div class="header">
             <div class="d-flex align-items-center">
                 <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
@@ -376,10 +384,10 @@ function getStatusBadge($status)
                                     <option value="">Select Consolidation...</option>
                                     <?php
                                     $deconList = $conn->query("
-                                        SELECT c.consolidation_id, c.consolidation_code, c.vehicle_set 
-                                        FROM consolidations c
-                                        LEFT JOIN hmbl h ON h.consolidation_id = c.consolidation_id
-                                        WHERE c.status = 'OPEN' AND h.hmbl_id IS NULL
+                                            SELECT c.consolidation_id, c.consolidation_code, c.vehicle_set 
+                                            FROM consolidations c
+                                            LEFT JOIN hmbl h ON h.consolidation_id = c.consolidation_id
+                                            WHERE c.status = 'OPEN' AND h.hmbl_id IS NULL
                                     ");
                                     while ($c = $deconList->fetch_assoc()):
                                     ?>
@@ -440,6 +448,7 @@ function getStatusBadge($status)
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="../assets/main.js"></script>
+
     <script>
         $(document).ready(function() {
             $('#consoTable').DataTable({
@@ -450,6 +459,20 @@ function getStatusBadge($status)
                 "lengthChange": false
             });
         });
+
+        <?php if (!$isAdmin): ?>
+            document.addEventListener('DOMContentLoaded', function() {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Access Denied',
+                    html: '<b>Administrator Access Only.</b><br>You do not have permission to use this module.',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false,
+                    footer: '<a href="dashboard.php" class="btn btn-primary btn-sm">Return to Dashboard</a>'
+                });
+            });
+        <?php endif; ?>
     </script>
 </body>
 

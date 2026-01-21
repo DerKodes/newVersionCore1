@@ -49,6 +49,7 @@ $items = $stmt->get_result();
     <meta charset="UTF-8">
     <title>BL: <?= $bl['hmbl_no'] ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
     <style>
         body {
             font-family: "Times New Roman", Times, serif;

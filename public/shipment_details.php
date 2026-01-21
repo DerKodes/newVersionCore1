@@ -84,6 +84,8 @@ function getBadge($status)
     <link rel="stylesheet" href="../assets/leaflet.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
 
+    <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
+
     <style>
         /* Base */
         body {

@@ -197,18 +197,55 @@ window.addEventListener("pageshow", function (event) {
 // =========================================
 
 function confirmLogout() {
+  // Check if Dark Mode is active to style the alert
+  const isDarkMode = document.body.classList.contains("dark-mode");
+
   Swal.fire({
-    title: "Logout?",
-    text: "You will be returned to the login screen.",
-    icon: "warning",
+    title: "Ready to leave?",
+    text: "Your session will be closed securely.",
+
+    // BRANDING: Use your logo instead of a generic icon
+    imageUrl: "../assets/slate.png",
+    imageWidth: 70,
+    imageHeight: "auto",
+    imageAlt: "System Logo",
+
+    // THEME ADAPTATION
+    background: isDarkMode ? "#1e1e1e" : "#ffffff",
+    color: isDarkMode ? "#e0e0e0" : "#333333",
+
+    // BUTTONS & UX
     showCancelButton: true,
-    confirmButtonColor: "#d33",
-    cancelButtonColor: "#3085d6",
-    confirmButtonText: "Yes, logout",
+    confirmButtonColor: "#dc3545", // Red (Bootstrap Danger)
+    cancelButtonColor: "#6c757d", // Grey (Bootstrap Secondary)
+    confirmButtonText: "Sign Out",
+    cancelButtonText: "Stay Here",
+    reverseButtons: true, // Puts 'Sign Out' on the right
+    focusCancel: true, // Focuses 'Stay Here' by default (prevents accidents)
+
+    // ANIMATION
+    showClass: {
+      popup: "swal2-show",
+      backdrop: "swal2-backdrop-show",
+      icon: "swal2-icon-show",
+    },
+    hideClass: {
+      popup: "swal2-hide",
+      backdrop: "swal2-backdrop-hide",
+      icon: "swal2-icon-hide",
+    },
   }).then((result) => {
     if (result.isConfirmed) {
+      // Trigger Loader
       const loader = document.getElementById("global-loader");
-      if (loader) loader.classList.remove("hidden");
+      if (loader) {
+        // Change text to indicate logging out
+        const loaderText = loader.querySelector(".loader-text");
+        if (loaderText) loaderText.textContent = "SIGNING OUT...";
+        loader.classList.remove("hidden");
+      }
+
+      // Redirect
       window.location.href = "../login/logout.php";
     }
   });
@@ -217,10 +254,13 @@ function confirmLogout() {
 function confirmFormAction(event, title = "Are you sure?", icon = "warning") {
   event.preventDefault();
   const form = event.target;
+  const isDarkMode = document.body.classList.contains("dark-mode");
 
   Swal.fire({
     title: title,
     icon: icon,
+    background: isDarkMode ? "#1e1e1e" : "#ffffff",
+    color: isDarkMode ? "#e0e0e0" : "#333333",
     showCancelButton: true,
     confirmButtonColor: "#3085d6",
     cancelButtonColor: "#d33",
@@ -233,3 +273,4 @@ function confirmFormAction(event, title = "Are you sure?", icon = "warning") {
     }
   });
 }
+// =========================================

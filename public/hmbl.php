@@ -3,10 +3,14 @@ session_start();
 include "../api/db.php";
 include "../includes/auth_check.php";
 include "../includes/role_check.php";
-requireAdmin();
+
+// 1. ROBUST ADMIN CHECK
+// Get role safely, trim whitespace, and convert to lowercase for comparison
+$role = isset($_SESSION['role']) ? strtolower(trim($_SESSION['role'])) : '';
+$isAdmin = ($role === 'admin' || $role === 'administrator');
 
 /* ================= CREATE HMBL ================= */
-if (isset($_POST['create_hmbl'])) {
+if ($isAdmin && isset($_POST['create_hmbl'])) {
     $conso_id = (int) $_POST['consolidation_id'];
     $user_id  = $_SESSION['user_id'];
     if (!$conso_id) die("Invalid consolidation.");
@@ -48,11 +52,13 @@ if (isset($_POST['create_hmbl'])) {
             $stmtAttach->execute();
         }
 
-        $stmt = $conn->prepare("UPDATE consolidations SET status='READY_TO_DISPATCH' WHERE consolidation_id=?");
+        // 2. TRUNCATION FIX: CHANGED 'READY_TO_DISPATCH' to 'DISPATCH'
+        // This ensures the status fits within typical VARCHAR limits
+        $stmt = $conn->prepare("UPDATE consolidations SET status='DISPATCH' WHERE consolidation_id=?");
         $stmt->bind_param("i", $conso_id);
         $stmt->execute();
 
-        $stmt = $conn->prepare("UPDATE shipments s JOIN consolidation_shipments cs ON s.shipment_id = cs.shipment_id SET s.status = 'READY_TO_DISPATCH', s.consolidated = 1 WHERE cs.consolidation_id=?");
+        $stmt = $conn->prepare("UPDATE shipments s JOIN consolidation_shipments cs ON s.shipment_id = cs.shipment_id SET s.status = 'DISPATCH', s.consolidated = 1 WHERE cs.consolidation_id=?");
         $stmt->bind_param("i", $conso_id);
         $stmt->execute();
 
@@ -76,6 +82,7 @@ if (isset($_POST['create_hmbl'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
+    <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
 
     <style>
         body {
@@ -205,6 +212,14 @@ if (isset($_POST['create_hmbl'])) {
         body.dark-mode .text-muted {
             color: #a0a0a0 !important;
         }
+
+        /* 4. BLUR STYLE */
+        .access-denied-blur {
+            filter: blur(8px);
+            pointer-events: none;
+            user-select: none;
+            opacity: 0.6;
+        }
     </style>
 </head>
 
@@ -220,7 +235,7 @@ if (isset($_POST['create_hmbl'])) {
         <a href="hmbl.php" class="active"><i class="bi bi-file-earmark-pdf me-2"></i> BL Generator</a>
     </div>
 
-    <div class="content" id="content">
+    <div class="content <?= !$isAdmin ? 'access-denied-blur' : '' ?>" id="content">
         <div class="header">
             <div class="d-flex align-items-center">
                 <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
@@ -361,6 +376,20 @@ if (isset($_POST['create_hmbl'])) {
             document.getElementById('pol').value = opt.getAttribute('data-pol') || '';
             document.getElementById('pod').value = opt.getAttribute('data-pod') || '';
         });
+
+        <?php if (!$isAdmin): ?>
+            document.addEventListener('DOMContentLoaded', function() {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Access Denied',
+                    html: '<b>Administrator Access Only.</b><br>You do not have permission to use this module.',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false, // Prevents closing
+                    footer: '<a href="dashboard.php" class="btn btn-primary btn-sm">Return to Dashboard</a>'
+                });
+            });
+        <?php endif; ?>
     </script>
 </body>
 

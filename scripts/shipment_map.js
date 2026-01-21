@@ -1,86 +1,65 @@
 let map = null;
-let routingControl = null; // Store the route controller
-let mapModal = null; // Store the Bootstrap modal instance
+let routingControl = null;
 
-function openShipmentMap(origin, destination, code) {
-  // ---------------------------------------------------------
-  // 1. BOOTSTRAP MODAL INITIALIZATION (Updated)
-  // ---------------------------------------------------------
-  const modalEl = document.getElementById("mapModal");
-
-  // Create a new instance (or reuse existing if you prefer, but new is safer here)
-  if (!mapModal) {
-    mapModal = new bootstrap.Modal(modalEl);
+// Function to initialize map directly in a div (No Modal)
+function initEmbeddedMap(origin, destination) {
+  // 1. Reset if exists to prevent "Map container is already initialized" error
+  if (map) {
+    map.remove();
+    map = null;
   }
 
-  mapModal.show();
-  document.getElementById("mapTitle").innerText = "Tracking: " + code;
-
-  // ---------------------------------------------------------
-  // 2. INITIALIZE MAP (Inside setTimeout)
-  // ---------------------------------------------------------
-  // We wait 500ms for the Bootstrap animation to finish sliding in.
-  // Leaflet needs the div to be visible/sized before it draws.
-  setTimeout(() => {
-    // Reset map if it exists (prevents "Map container is already initialized" error)
-    if (map) {
-      map.remove();
-      map = null;
-    }
-
-    // Default View (Philippines)
-    map = L.map("shipmentMap").setView([14.6, 121.0], 10);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap",
-    }).addTo(map);
-
-    // 3. Find Locations & Draw Route
-    Promise.all([geocodeWithFallback(origin), geocodeWithFallback(destination)])
-      .then((coords) => {
-        let start = coords[0];
-        let end = coords[1];
-
-        if (!start || !end) {
-          alert("Map Error: Could not locate one or both addresses.");
-          return;
-        }
-
-        // 🟢 REAL ROAD ROUTING (OSRM)
-        routingControl = L.Routing.control({
-          waypoints: [L.latLng(start[0], start[1]), L.latLng(end[0], end[1])],
-          routeWhileDragging: false,
-          addWaypoints: false, // User can't change path
-          draggableWaypoints: false, // Lock the points
-          fitSelectedRoutes: true, // Auto-zoom to fit the route
-          show: false, // Hide the text instructions (Turn left, etc.)
-          lineOptions: {
-            styles: [{ color: "blue", opacity: 0.7, weight: 5 }],
-          },
-          createMarker: function (i, wp, nWps) {
-            // Custom markers for Start (A) and End (B)
-            let label =
-              i === 0 ? "Origin: " + origin : "Destination: " + destination;
-            return L.marker(wp.latLng).bindPopup(label).openPopup();
-          },
-        }).addTo(map);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert("Map Error: " + err.message);
-      });
-  }, 500); // Wait 500ms for modal transition
-}
-
-// NOTE: With Bootstrap, we don't strictly need a custom closeMap() function
-// because the "X" button or clicking outside handles it.
-// However, if you have a custom "Close" button calling this, it's fine to keep.
-function closeMap() {
-  if (mapModal) {
-    mapModal.hide();
+  // 2. Initialize Leaflet
+  // Ensure the div with id="shipmentMap" exists before running this
+  var mapContainer = document.getElementById("shipmentMap");
+  if (!mapContainer) {
+    console.error("Map container #shipmentMap not found!");
+    return;
   }
-  // We don't remove the map here immediately; we do it next time it opens.
+
+  map = L.map("shipmentMap").setView([14.6, 121.0], 10); // Default to Philippines
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap",
+  }).addTo(map);
+
+  // 3. Geocode and Draw Route
+  Promise.all([geocodeWithFallback(origin), geocodeWithFallback(destination)])
+    .then((coords) => {
+      let start = coords[0];
+      let end = coords[1];
+
+      if (!start || !end) {
+        console.warn("Could not locate one or both addresses.");
+        return;
+      }
+
+      // Draw Route using OSRM
+      if (routingControl) {
+        map.removeControl(routingControl);
+      }
+
+      routingControl = L.Routing.control({
+        waypoints: [L.latLng(start[0], start[1]), L.latLng(end[0], end[1])],
+        routeWhileDragging: false,
+        addWaypoints: false,
+        draggableWaypoints: false,
+        fitSelectedRoutes: true,
+        show: false, // Hide text instructions
+        lineOptions: {
+          styles: [{ color: "blue", opacity: 0.7, weight: 5 }],
+        },
+        createMarker: function (i, wp) {
+          let label =
+            i === 0 ? "Origin: " + origin : "Destination: " + destination;
+          return L.marker(wp.latLng).bindPopup(label).openPopup();
+        },
+      }).addTo(map);
+    })
+    .catch((err) => {
+      console.error("Map Error:", err);
+    });
 }
 
 // ---------------------------------------------------------
@@ -110,6 +89,7 @@ function geocode(address) {
   if (!address || address === "0") return Promise.reject("Invalid Address");
 
   // Use our PHP Proxy to avoid CORS errors
+  // Make sure this path points correctly to your API folder relative to where the script is run
   let url = "../api/geocode.php?q=" + encodeURIComponent(address);
 
   return fetch(url)

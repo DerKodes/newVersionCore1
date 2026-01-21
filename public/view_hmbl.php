@@ -3,42 +3,44 @@ session_start();
 include "../api/db.php";
 include "../includes/auth_check.php";
 
-if (!isset($_GET['id'])) die("Invalid BL ID");
+if (!isset($_GET['id'])) {
+    die("Invalid BL Request.");
+}
 
 $hmbl_id = (int)$_GET['id'];
 
-// 1. Fetch BL Details
-$stmt = $conn->prepare("
-    SELECT h.*, c.trip_no, c.origin, c.destination
+// Fetch BL Data + Consolidation Info
+$query = "
+    SELECT 
+        h.*, 
+        c.consolidation_code, c.trip_no, c.origin, c.destination,
+        u.full_name as issuer_name
     FROM hmbl h
     JOIN consolidations c ON h.consolidation_id = c.consolidation_id
+    JOIN users u ON h.created_by = u.user_id
     WHERE h.hmbl_id = ?
-");
+";
+
+$stmt = $conn->prepare($query);
 $stmt->bind_param("i", $hmbl_id);
 $stmt->execute();
 $bl = $stmt->get_result()->fetch_assoc();
 
-if (!$bl) die("BL Not Found");
+if (!$bl) die("BL Document Not Found.");
 
-// 2. Fetch Cargo Details (Fixed Query to JOIN Purchase Orders)
-// We join purchase_orders (po) to get weight, package_type, etc.
-$cargo = $conn->query("
-    SELECT 
-        s.shipment_code, 
-        s.origin,
-        po.transport_mode,
-        po.weight, 
-        po.package_type, 
-        po.package_description
+// Fetch Associated Cargo Items
+// 🟢 FIXED: Changed s.weight to po.weight
+$items_query = "
+    SELECT s.shipment_code, po.weight, po.package_type, po.package_description
     FROM hmbl_shipments hs
     JOIN shipments s ON hs.shipment_id = s.shipment_id
     JOIN purchase_orders po ON s.po_id = po.po_id
-    WHERE hs.hmbl_id = $hmbl_id
-");
-
-// Calculate Totals
-$total_weight = 0;
-$total_pkgs = 0;
+    WHERE hs.hmbl_id = ?
+";
+$stmt = $conn->prepare($items_query);
+$stmt->bind_param("i", $hmbl_id);
+$stmt->execute();
+$items = $stmt->get_result();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -49,89 +51,90 @@ $total_pkgs = 0;
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
-            background: #525659;
-            font-family: 'Times New Roman', serif;
+            font-family: "Times New Roman", Times, serif;
+            background: #555;
+            padding: 20px;
         }
 
         .page {
             background: white;
             width: 210mm;
             min-height: 297mm;
-            margin: 20px auto;
+            margin: 0 auto;
             padding: 15mm;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
             position: relative;
         }
 
-        .box {
-            border: 1px solid #000;
-            min-height: 100px;
-            padding: 8px;
-            font-size: 12px;
-            margin-bottom: -1px;
-            margin-right: -1px;
-            overflow: hidden;
+        .bl-header {
+            border: 2px solid #000;
+            display: flex;
         }
 
-        .box-title {
-            font-weight: bold;
+        .box {
+            border-right: 1px solid #000;
+            border-bottom: 1px solid #000;
+            padding: 8px;
+            font-size: 14px;
+        }
+
+        .box-label {
             font-size: 10px;
-            color: #555;
+            font-weight: bold;
             text-transform: uppercase;
-            margin-bottom: 5px;
+            color: #555;
+            display: block;
+            margin-bottom: 3px;
         }
 
         .bl-title {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: bold;
             text-align: center;
-            margin-top: 15px;
-            color: #000;
+            padding: 20px;
         }
 
-        .company-name {
-            font-size: 18px;
-            font-weight: bold;
-            color: #0d6efd;
-            text-align: center;
-            margin-bottom: 5px;
-        }
-
-        table.cargo-table {
+        .cargo-table {
             width: 100%;
-            font-size: 12px;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 2px;
         }
 
-        table.cargo-table th {
-            border-bottom: 1px solid #000;
-            border-top: 1px solid #000;
-            padding: 8px 5px;
-            text-align: left;
+        .cargo-table th {
+            border: 1px solid #000;
+            padding: 5px;
+            font-size: 12px;
+            background: #eee;
         }
 
-        table.cargo-table td {
-            padding: 8px 5px;
+        .cargo-table td {
+            border: 1px solid #000;
+            padding: 8px;
+            font-size: 13px;
             vertical-align: top;
+        }
+
+        .terms {
+            font-size: 9px;
+            text-align: justify;
+            margin-top: 20px;
+            color: #444;
         }
 
         @media print {
             body {
                 background: white;
-                margin: 0;
+                padding: 0;
             }
 
             .page {
                 box-shadow: none;
                 margin: 0;
                 width: 100%;
-                height: 100%;
-                padding: 0;
             }
 
             .no-print {
-                display: none;
+                display: none !important;
             }
         }
     </style>
@@ -139,129 +142,139 @@ $total_pkgs = 0;
 
 <body>
 
-    <div class="text-center no-print pt-3">
-        <button onclick="window.print()" class="btn btn-primary shadow-sm">🖨️ Print BL</button>
-        <button onclick="window.close()" class="btn btn-secondary shadow-sm">Close</button>
+    <div class="text-center mb-4 no-print">
+        <button onclick="window.print()" class="btn btn-primary fw-bold px-4">🖨️ Print Original Bill of Lading</button>
+        <button onclick="window.close()" class="btn btn-secondary ms-2">Close</button>
     </div>
 
     <div class="page">
 
-        <div class="row g-0">
+        <div class="row mb-4 align-items-center">
             <div class="col-6">
-                <div class="box" style="height: 120px;">
-                    <div class="box-title">Shipper / Exporter</div>
-                    <?= nl2br($bl['shipper']) ?>
+                <img src="../assets/slate.png" alt="Logo" style="height: 50px; filter: grayscale(100%);">
+                <h5 class="fw-bold mt-2">SLATE LOGISTICS CORP.</h5>
+                <small>101 Logistics Way, Port Area<br>Manila, Philippines</small>
+            </div>
+            <div class="col-6 text-end">
+                <h2 class="fw-bold">BILL OF LADING</h2>
+                <h5 class="text-danger"><?= $bl['hmbl_no'] ?></h5>
+            </div>
+        </div>
+
+        <div style="border: 2px solid black;">
+            <div class="row g-0">
+                <div class="col-6 box">
+                    <span class="box-label">Shipper / Exporter</span>
+                    <strong><?= strtoupper($bl['shipper']) ?></strong>
                 </div>
-                <div class="box" style="height: 120px;">
-                    <div class="box-title">Consignee</div>
-                    <?= nl2br($bl['consignee']) ?>
-                </div>
-                <div class="box" style="height: 120px;">
-                    <div class="box-title">Notify Party</div>
-                    <?= nl2br($bl['notify_party']) ?>
+                <div class="col-6 box" style="border-right: none;">
+                    <span class="box-label">Booking / Reference No.</span>
+                    <?= $bl['consolidation_code'] ?>
                 </div>
             </div>
 
-            <div class="col-6">
-                <div class="row g-0">
-                    <div class="col-6 box" style="height: 60px;">
-                        <div class="box-title">BL Number</div>
-                        <span class="fw-bold fs-5"><?= $bl['hmbl_no'] ?></span>
+            <div class="row g-0">
+                <div class="col-6 box">
+                    <span class="box-label">Consignee</span>
+                    <strong><?= strtoupper($bl['consignee']) ?></strong>
+                </div>
+                <div class="col-6 box" style="border-right: none;">
+                    <span class="box-label">Trip Number / Voyage</span>
+                    <?= $bl['trip_no'] ?>
+                </div>
+            </div>
+
+            <div class="row g-0">
+                <div class="col-6 box">
+                    <span class="box-label">Notify Party</span>
+                    <?= strtoupper($bl['notify_party'] ?: $bl['consignee']) ?>
+                </div>
+                <div class="col-6 p-0">
+                    <div class="box" style="border-right: none; border-bottom: 1px solid black;">
+                        <span class="box-label">Port of Loading</span>
+                        <?= strtoupper($bl['port_of_loading']) ?>
                     </div>
-                    <div class="col-6 box" style="height: 60px;">
-                        <div class="box-title">Job / Ref No.</div>
-                        <?= $bl['trip_no'] ?>
+                    <div class="box" style="border-right: none; border-bottom: none;">
+                        <span class="box-label">Port of Discharge</span>
+                        <?= strtoupper($bl['port_of_discharge']) ?>
                     </div>
-                    <div class="col-12 box d-flex align-items-center justify-content-center flex-column" style="height: 180px;">
-                        <div class="company-name">CORE LOGISTICS SYSTEM</div>
-                        <div class="text-muted small">123 Logistics Ave, Manila, Philippines</div>
-                        <div class="bl-title">BILL OF LADING</div>
-                        <div class="small fw-bold mt-2">ORIGINAL</div>
-                    </div>
-                    <div class="col-12 box" style="height: 120px;">
-                        <div class="box-title">For Release of Shipment, Please Contact:</div>
-                        <strong>CORE INTERNATIONAL FREIGHT AGENTS</strong><br>
-                        Contact Person: Admin Support<br>
-                        Tel: +63 2 8700 0000<br>
-                        Email: support@corelogistics.com
-                    </div>
+                </div>
+            </div>
+
+            <div class="row g-0">
+                <div class="col-6 box" style="border-bottom: none;">
+                    <span class="box-label">Vessel / Carrier</span>
+                    <?= strtoupper($bl['vessel']) ?>
+                </div>
+                <div class="col-6 box" style="border-right: none; border-bottom: none;">
+                    <span class="box-label">Date of Issue</span>
+                    <?= date("F d, Y", strtotime($bl['created_at'])) ?>
                 </div>
             </div>
         </div>
 
-        <div class="row g-0">
-            <div class="col-3 box">
-                <div class="box-title">Vessel / Voyage</div>
-                <?= $bl['vessel'] ?> / <?= $bl['voyage'] ?>
-            </div>
-            <div class="col-3 box">
-                <div class="box-title">Port of Loading</div>
-                <?= $bl['port_of_loading'] ?>
-            </div>
-            <div class="col-3 box">
-                <div class="box-title">Port of Discharge</div>
-                <?= $bl['port_of_discharge'] ?>
-            </div>
-            <div class="col-3 box">
-                <div class="box-title">Final Destination</div>
-                <?= $bl['destination'] ?>
-            </div>
-        </div>
-
-        <table class="cargo-table">
+        <table class="cargo-table mt-3">
             <thead>
                 <tr>
-                    <th width="20%">MARKS & NUMBERS</th>
-                    <th width="10%">QTY</th>
-                    <th width="50%">DESCRIPTION OF PACKAGES AND GOODS</th>
-                    <th width="20%" class="text-end">GROSS WEIGHT</th>
+                    <th style="width: 20%;">Shipment Code</th>
+                    <th style="width: 15%;">Package</th>
+                    <th style="width: 50%;">Description of Goods</th>
+                    <th style="width: 15%; text-align: right;">Gross Weight</th>
                 </tr>
             </thead>
             <tbody>
-                <?php while ($s = $cargo->fetch_assoc()):
-                    // Safely handle null values to prevent warnings
-                    $w = isset($s['weight']) ? (float)$s['weight'] : 0;
-                    $total_weight += $w;
-                    $total_pkgs++;
+                <?php
+                $total_weight = 0;
+                while ($item = $items->fetch_assoc()):
+                    $total_weight += $item['weight'];
                 ?>
                     <tr>
-                        <td>
-                            <?= $s['shipment_code'] ?><br>
-                            <small>TYPE: <?= strtoupper($s['package_type'] ?? 'PKG') ?></small>
-                        </td>
-                        <td>1</td>
-                        <td>
-                            <strong><?= $s['transport_mode'] ?? 'STD' ?> FREIGHT</strong><br>
-                            <?= $s['package_description'] ?: 'General Cargo' ?><br>
-                            <small class="text-muted">Origin: <?= $s['origin'] ?></small>
-                        </td>
-                        <td class="text-end"><?= number_format($w, 2) ?> KGS</td>
+                        <td><?= $item['shipment_code'] ?></td>
+                        <td><?= $item['package_type'] ?></td>
+                        <td><?= $item['package_description'] ?: 'General Cargo' ?></td>
+                        <td class="text-end"><?= number_format($item['weight'], 2) ?> KG</td>
                     </tr>
                 <?php endwhile; ?>
 
-                <tr style="border-top: 1px solid #000; font-weight: bold; background-color: #f9f9f9;">
-                    <td>TOTALS</td>
-                    <td><?= $total_pkgs ?> PKGS</td>
-                    <td>SAY: <?= convertNumberToWords($total_pkgs) ?> PACKAGES ONLY</td>
-                    <td class="text-end"><?= number_format($total_weight, 2) ?> KGS</td>
+                <?php for ($i = 0; $i < 3; $i++): ?>
+                    <tr>
+                        <td style="height: 30px;"></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                <?php endfor; ?>
+
+                <tr style="background: #eee; font-weight: bold;">
+                    <td colspan="3" class="text-end">TOTAL WEIGHT</td>
+                    <td class="text-end"><?= number_format($total_weight, 2) ?> KG</td>
                 </tr>
             </tbody>
         </table>
 
-        <div class="row g-0 mt-5 pt-5">
-            <div class="col-7 pe-4">
-                <div style="font-size: 10px; text-align: justify;">
-                    RECEIVED by the Carrier the Goods as specified above in apparent good order and condition unless otherwise stated...
+        <div class="row mt-5">
+            <div class="col-6">
+                <div style="border-top: 1px solid black; width: 80%; padding-top: 5px;">
+                    <span class="box-label">Received by (Name & Signature)</span>
                 </div>
             </div>
-            <div class="col-5 text-center">
-                <div style="border-top: 1px solid #000; width: 90%; margin: 0 auto; padding-top: 5px;">
-                    Signed for and on behalf of Carrier
+            <div class="col-6 text-end">
+                <div class="mb-4">
+                    <img src="../assets/signature.png" alt="Authorized Sig" style="height: 40px; opacity: 0.5;">
                 </div>
-                <div style="height: 60px;"></div>
-                <div style="font-size: 11px; font-weight: bold;">(AUTHORIZED SIGNATURE)</div>
-                <div style="font-size: 11px;">Date Issued: <?= date("F j, Y", strtotime($bl['created_at'])) ?></div>
+                <div style="border-top: 1px solid black; width: 80%; float: right; padding-top: 5px;">
+                    <span class="box-label">For SLATE LOGISTICS (Authorized Signature)</span>
+                    <small>Issued by: <?= $bl['issuer_name'] ?></small>
+                </div>
             </div>
+        </div>
+
+        <div class="terms">
+            <strong>TERMS AND CONDITIONS:</strong><br>
+            1. RECEIVED by the Carrier from the Shipper in apparent good order and condition unless otherwise indicated.
+            2. The Goods to be delivered at the above mentioned Port of Discharge or place of delivery.
+            3. Weight, measure, marks, numbers, quality, contents and value as declared by the Shipper but unknown to the Carrier.
+            4. This Bill of Lading is issued subject to the Standard Trading Conditions of the Carrier.
         </div>
 
     </div>
@@ -269,56 +282,3 @@ $total_pkgs = 0;
 </body>
 
 </html>
-
-<?php
-// CUSTOM FUNCTION: No need for PHP Intl extension
-function convertNumberToWords($number)
-{
-    $dictionary = array(
-        0 => 'ZERO',
-        1 => 'ONE',
-        2 => 'TWO',
-        3 => 'THREE',
-        4 => 'FOUR',
-        5 => 'FIVE',
-        6 => 'SIX',
-        7 => 'SEVEN',
-        8 => 'EIGHT',
-        9 => 'NINE',
-        10 => 'TEN',
-        11 => 'ELEVEN',
-        12 => 'TWELVE',
-        13 => 'THIRTEEN',
-        14 => 'FOURTEEN',
-        15 => 'FIFTEEN',
-        16 => 'SIXTEEN',
-        17 => 'SEVENTEEN',
-        18 => 'EIGHTEEN',
-        19 => 'NINETEEN',
-        20 => 'TWENTY',
-        30 => 'THIRTY',
-        40 => 'FORTY',
-        50 => 'FIFTY',
-        60 => 'SIXTY',
-        70 => 'SEVENTY',
-        80 => 'EIGHTY',
-        90 => 'NINETY'
-    );
-
-    if ($number < 21) {
-        return $dictionary[$number];
-    } elseif ($number < 100) {
-        $tens = ((int) ($number / 10)) * 10;
-        $units = $number % 10;
-        $string = $dictionary[$tens];
-        if ($units) {
-            $string .= '-' . $dictionary[$units];
-        }
-        return $string;
-    } elseif ($number < 1000) {
-        // Simple logic for hundreds if needed, but usually shipment counts are small
-        return (string)$number;
-    }
-    return (string)$number;
-}
-?>

@@ -152,7 +152,21 @@ function getStatusBadge($status)
             }
         }
 
-        /* Dark Mode */
+        /* 🟢 STICKY HEADER FIX */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background-color: #fff;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 15px 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Dark Mode Variables */
         :root {
             --dark-bg: #121212;
             --dark-card: #1e1e1e;
@@ -162,9 +176,17 @@ function getStatusBadge($status)
             --dark-hover: rgba(255, 255, 255, 0.05);
         }
 
+        /* Dark Mode Styles */
         body.dark-mode {
             background-color: var(--dark-bg) !important;
             color: var(--dark-text) !important;
+        }
+
+        /* Dark Mode Sticky Header */
+        body.dark-mode .header {
+            background-color: var(--dark-card);
+            border-bottom: 1px solid var(--dark-border);
+            color: var(--dark-text);
         }
 
         body.dark-mode .card {
@@ -180,12 +202,6 @@ function getStatusBadge($status)
 
         body.dark-mode .card-header h5 {
             color: #fff !important;
-        }
-
-        body.dark-mode .header {
-            background-color: var(--dark-card);
-            border-bottom: 1px solid var(--dark-border);
-            color: var(--dark-text);
         }
 
         body.dark-mode .table {
@@ -287,7 +303,7 @@ function getStatusBadge($status)
             </div>
         </div>
 
-        <div class="row g-4">
+        <div class="row g-4 mt-4">
             <div class="col-lg-5">
                 <div class="card shadow-sm border-0 h-100">
                     <div class="card-header bg-white py-3">

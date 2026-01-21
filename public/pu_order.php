@@ -103,11 +103,13 @@ if (isset($_POST['update_status'])) {
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
 
     <style>
+        /* Global Font & Transition */
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             transition: background-color 0.3s, color 0.3s;
         }
 
+        /* Layout Fixes */
         body.sidebar-closed .sidebar {
             margin-left: -250px;
         }
@@ -130,7 +132,24 @@ if (isset($_POST['update_status'])) {
             }
         }
 
-        /* Dark Mode */
+        /* 🟢 STICKY HEADER FIX */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background-color: #fff;
+            /* Default Light Mode BG */
+            border-bottom: 1px solid #e3e6f0;
+            padding: 15px 25px;
+            /* Ensure padding matches style.css */
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            /* Optional shadow */
+        }
+
+        /* Dark Mode Variables */
         :root {
             --dark-bg: #121212;
             --dark-card: #1e1e1e;
@@ -140,9 +159,17 @@ if (isset($_POST['update_status'])) {
             --dark-hover: rgba(255, 255, 255, 0.05);
         }
 
+        /* Dark Mode Styles */
         body.dark-mode {
             background-color: var(--dark-bg) !important;
             color: var(--dark-text) !important;
+        }
+
+        /* Dark Mode Sticky Header */
+        body.dark-mode .header {
+            background-color: var(--dark-card) !important;
+            border-bottom: 1px solid var(--dark-border);
+            color: var(--dark-text);
         }
 
         body.dark-mode .card {
@@ -160,12 +187,7 @@ if (isset($_POST['update_status'])) {
             color: #fff !important;
         }
 
-        body.dark-mode .header {
-            background-color: var(--dark-card);
-            border-bottom: 1px solid var(--dark-border);
-            color: var(--dark-text);
-        }
-
+        /* Tables */
         body.dark-mode .table {
             color: var(--dark-text);
             border-color: var(--dark-border);
@@ -195,8 +217,18 @@ if (isset($_POST['update_status'])) {
             color: #fff;
         }
 
+        body.dark-mode .table .text-primary {
+            color: #6ea8fe !important;
+        }
+
+        body.dark-mode .text-muted {
+            color: #a0a0a0 !important;
+        }
+
+        /* Inputs & Dropdowns */
         body.dark-mode .form-control,
-        body.dark-mode .form-select {
+        body.dark-mode .form-select,
+        body.dark-mode input[type="search"] {
             background-color: #2c2c2c;
             border-color: var(--dark-border);
             color: #fff;
@@ -266,7 +298,7 @@ if (isset($_POST['update_status'])) {
             </div>
         </div>
 
-        <div class="card shadow-sm border-0 mb-4">
+        <div class="card shadow-sm border-0 mb-4 mt-4">
             <div class="card-header bg-white py-3">
                 <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-plus-circle me-2"></i> Create New Order</h5>
             </div>
@@ -442,6 +474,7 @@ if (isset($_POST['update_status'])) {
     <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <script src="../assets/main.js"></script>
 
     <script>

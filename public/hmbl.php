@@ -141,6 +141,7 @@ if (isset($_POST['create_hmbl'])) {
             color: var(--dark-text);
         }
 
+        /* Tables */
         body.dark-mode .table {
             color: var(--dark-text);
             border-color: var(--dark-border);
@@ -174,11 +175,17 @@ if (isset($_POST['create_hmbl'])) {
             color: #6ea8fe !important;
         }
 
+        /* 🟢 FORM INPUT FIXES FOR DARK MODE */
         body.dark-mode .form-control,
         body.dark-mode .form-select {
-            background-color: #2c2c2c;
-            border-color: var(--dark-border);
-            color: #fff;
+            background-color: #2c2c2c !important;
+            border-color: var(--dark-border) !important;
+            color: #fff !important;
+        }
+
+        body.dark-mode .form-control::placeholder {
+            color: #aaa !important;
+            opacity: 1;
         }
 
         body.dark-mode .dropdown-menu {
@@ -217,7 +224,7 @@ if (isset($_POST['create_hmbl'])) {
         <div class="header">
             <div class="d-flex align-items-center">
                 <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
-                <h2 class="mb-0 ms-2" id="pageTitle">House Bill of Lading (HMBL)</h2>
+                <h2 class="mb-0 ms-2" id="pageTitle">House Bill of Lading</h2>
             </div>
             <div class="theme-toggle-container">
                 <div class="d-flex align-items-center me-3">
@@ -278,17 +285,17 @@ if (isset($_POST['create_hmbl'])) {
                                 </select>
                             </div>
                             <div class="row g-2 mb-2">
-                                <div class="col-md-6"><input name="shipper" id="shipper" class="form-control form-control-sm" placeholder="Shipper" required></div>
-                                <div class="col-md-6"><input name="consignee" id="consignee" class="form-control form-control-sm" placeholder="Consignee" required></div>
+                                <div class="col-md-6"><label class="small text-muted">Shipper</label><input name="shipper" id="shipper" class="form-control form-control-sm" placeholder="Shipper" required></div>
+                                <div class="col-md-6"><label class="small text-muted">Consignee</label><input name="consignee" id="consignee" class="form-control form-control-sm" placeholder="Consignee" required></div>
                             </div>
-                            <div class="mb-2"><input name="notify_party" id="notify" class="form-control form-control-sm" placeholder="Notify Party"></div>
+                            <div class="mb-2"><label class="small text-muted">Notify Party</label><input name="notify_party" id="notify" class="form-control form-control-sm" placeholder="Notify Party"></div>
                             <div class="row g-2 mb-2">
-                                <div class="col-md-6"><input name="pol" id="pol" class="form-control form-control-sm" placeholder="Port of Loading" required></div>
-                                <div class="col-md-6"><input name="pod" id="pod" class="form-control form-control-sm" placeholder="Port of Discharge" required></div>
+                                <div class="col-md-6"><label class="small text-muted">Port of Loading</label><input name="pol" id="pol" class="form-control form-control-sm" placeholder="Port of Loading" required></div>
+                                <div class="col-md-6"><label class="small text-muted">Port of Discharge</label><input name="pod" id="pod" class="form-control form-control-sm" placeholder="Port of Discharge" required></div>
                             </div>
                             <div class="row g-2 mb-3">
-                                <div class="col-md-6"><input name="vessel" class="form-control form-control-sm" placeholder="Vessel / Truck ID"></div>
-                                <div class="col-md-6"><input name="voyage" id="trip_no" class="form-control form-control-sm" placeholder="Trip No" readonly></div>
+                                <div class="col-md-6"><label class="small text-muted">Vessel</label><input name="vessel" class="form-control form-control-sm" placeholder="Vessel / Truck ID"></div>
+                                <div class="col-md-6"><label class="small text-muted">Trip No</label><input name="voyage" id="trip_no" class="form-control form-control-sm" placeholder="Trip No" readonly></div>
                             </div>
                             <button name="create_hmbl" class="btn btn-primary w-100"><i class="bi bi-printer me-2"></i> Issue HMBL & Lock</button>
                         </form>

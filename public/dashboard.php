@@ -23,13 +23,50 @@ $kpiConso     = $conn->query("SELECT COUNT(*) c FROM consolidations WHERE status
 $kpiEvents    = $conn->query("SELECT COUNT(*) c FROM shipment_tracking")->fetch_assoc()['c'];
 $kpiPOs       = $conn->query("SELECT COUNT(*) c FROM purchase_orders WHERE status='PENDING'")->fetch_assoc()['c'];
 
+// CHART DATA: Status Distribution
+$stat_booked    = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='BOOKED'")->fetch_assoc()['c'];
+$stat_transit   = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='IN_TRANSIT'")->fetch_assoc()['c'];
+$stat_arrived   = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='ARRIVED'")->fetch_assoc()['c'];
+$stat_delivered = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='DELIVERED'")->fetch_assoc()['c'];
+
+// ================== DYNAMIC CHART DATA: WEEKLY VOLUME ==================
+// 1. Initialize last 7 days with 0
+$volumeData = [];
+for ($i = 6; $i >= 0; $i--) {
+    $date = date('Y-m-d', strtotime("-$i days"));
+    $volumeData[$date] = 0;
+}
+
+// 2. Query actual data
+$volQuery = $conn->query("
+    SELECT DATE(created_at) as d, COUNT(*) as c 
+    FROM shipments 
+    WHERE created_at >= DATE(NOW()) - INTERVAL 7 DAY 
+    GROUP BY DATE(created_at)
+");
+
+// 3. Fill in real numbers
+while ($row = $volQuery->fetch_assoc()) {
+    if (isset($volumeData[$row['d']])) {
+        $volumeData[$row['d']] = $row['c'];
+    }
+}
+
+// 4. Prepare for Chart.js
+$chartLabels = [];
+$chartCounts = [];
+foreach ($volumeData as $date => $count) {
+    $chartLabels[] = date('D', strtotime($date)); // e.g., "Mon"
+    $chartCounts[] = $count;
+}
+
 // ================== RECENT SHIPMENTS ==================
 $recent = $conn->query("
     SELECT s.*, p.sender_name, p.created_at AS po_date
     FROM shipments s
     JOIN purchase_orders p ON s.po_id = p.po_id
     ORDER BY s.created_at DESC
-    LIMIT 10
+    LIMIT 5
 ");
 
 // ================== HISTORY FEED ==================
@@ -67,133 +104,170 @@ function getStatusBadge($status)
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - CORE 1</title>
 
-    <link rel="stylesheet" href="../assets/style.css"> 
+    <link rel="stylesheet" href="../assets/style.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
 
     <style>
-        /* 1. Global Font & Transition */
+        /* Global Font & Transition */
         body {
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             transition: background-color 0.3s, color 0.3s;
         }
 
-        /* 2. Layout Fixes */
-        body.sidebar-closed .sidebar { margin-left: -250px; }
-        body.sidebar-closed .content { margin-left: 0; width: 100%; }
-        .content { width: calc(100% - 250px); margin-left: 250px; transition: all 0.3s; }
-        @media (max-width: 768px) { .content { width: 100%; margin-left: 0; } }
-
-        /* ================= DARK MODE VARIABLES ================= */
-        :root {
-            --dark-bg: #121212;       /* Deep Dark Background */
-            --dark-card: #1e1e1e;     /* Slightly lighter for cards */
-            --dark-text: #e0e0e0;     /* Soft White Text */
-            --dark-border: #333333;   /* Subtle Borders */
-            --dark-table-head: #2c2c2c; /* Header for tables */
-            --dark-hover: rgba(255,255,255,0.05); /* Hover effect */
+        /* Layout Fixes */
+        body.sidebar-closed .sidebar {
+            margin-left: -250px;
         }
 
-        /* ================= DARK MODE APPLIED ================= */
+        body.sidebar-closed .content {
+            margin-left: 0;
+            width: 100%;
+        }
+
+        .content {
+            width: calc(100% - 250px);
+            margin-left: 250px;
+            transition: all 0.3s;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                width: 100%;
+                margin-left: 0;
+            }
+        }
+
+        /* 🟢 STICKY HEADER FIX */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background-color: #fff;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 15px 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Dark Mode Variables */
+        :root {
+            --dark-bg: #121212;
+            --dark-card: #1e1e1e;
+            --dark-text: #e0e0e0;
+            --dark-border: #333333;
+            --dark-table-head: #2c2c2c;
+            --dark-hover: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Dark Mode Styles */
         body.dark-mode {
             background-color: var(--dark-bg) !important;
             color: var(--dark-text) !important;
         }
 
-        /* --- Cards --- */
+        /* Dark Mode Sticky Header */
+        body.dark-mode .header {
+            background-color: var(--dark-card) !important;
+            border-bottom: 1px solid var(--dark-border);
+            color: var(--dark-text);
+        }
+
         body.dark-mode .card {
             background-color: var(--dark-card);
             border: 1px solid var(--dark-border);
             color: var(--dark-text);
         }
+
         body.dark-mode .card-header {
             background-color: rgba(255, 255, 255, 0.05) !important;
             border-bottom: 1px solid var(--dark-border);
         }
+
         body.dark-mode .card-header h5 {
-            color: #fff !important; 
+            color: #fff !important;
         }
 
-        /* --- Header Bar --- */
-        body.dark-mode .header {
-            background-color: var(--dark-card);
-            border-bottom: 1px solid var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        /* --- TABLES & TBODY FIXES (CRITICAL) --- */
+        /* Tables */
         body.dark-mode .table {
             color: var(--dark-text);
             border-color: var(--dark-border);
-            --bs-table-bg: transparent; /* Reset Bootstrap var */
+            --bs-table-bg: transparent;
         }
-        
-        /* 1. Header (Thead) */
+
         body.dark-mode .table .table-light {
             background-color: var(--dark-table-head);
             color: #fff;
             border-color: var(--dark-border);
         }
+
         body.dark-mode .table .table-light th {
             background-color: var(--dark-table-head);
             color: #fff;
             border-bottom: 1px solid var(--dark-border);
         }
 
-        /* 2. Body Cells (Tbody TD) */
         body.dark-mode .table tbody td {
-            background-color: var(--dark-card); /* Match card bg */
+            background-color: var(--dark-card);
             color: var(--dark-text);
             border-color: var(--dark-border);
         }
 
-        /* 3. Hover Effect on Rows */
         body.dark-mode .table-hover tbody tr:hover td {
             background-color: var(--dark-hover);
             color: #fff;
         }
 
-        /* 4. Fix Links inside Tables (Blue text) */
         body.dark-mode .table .text-primary {
-            color: #6ea8fe !important; /* Light blue for visibility */
+            color: #6ea8fe !important;
         }
 
-        /* --- List Group (Operational Feed) --- */
+        /* List Group */
         body.dark-mode .list-group-item {
             background-color: var(--dark-card);
             border-color: var(--dark-border);
             color: var(--dark-text);
         }
 
-        /* --- Inputs & Dropdowns --- */
-        body.dark-mode .form-control, 
-        body.dark-mode .form-select, 
+        /* Dropdowns & Forms */
+        body.dark-mode .form-control,
+        body.dark-mode .form-select,
         body.dark-mode input[type="search"] {
             background-color: #2c2c2c;
             border-color: var(--dark-border);
             color: #fff;
         }
-        
+
         body.dark-mode .dropdown-menu {
             background-color: var(--dark-card);
             border: 1px solid var(--dark-border);
         }
+
         body.dark-mode .dropdown-item {
             color: var(--dark-text);
         }
+
         body.dark-mode .dropdown-item:hover {
             background-color: #333;
             color: #fff;
         }
 
-        /* Text Muted Fix */
         body.dark-mode .text-muted {
-            color: #a0a0a0 !important; 
+            color: #a0a0a0 !important;
         }
-        
-        /* KPI Cards (Remove borders to keep them clean) */
-        .kpi-card { border: none; }
+
+        /* KPI Cards (No Border) */
+        .kpi-card {
+            border: none;
+        }
+
+        /* Chart Canvas Height */
+        canvas {
+            max-height: 250px;
+        }
     </style>
 </head>
 
@@ -233,14 +307,16 @@ function getStatusBadge($status)
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end shadow">
                         <li><a class="dropdown-item" href="#"><i class="bi bi-gear me-2"></i> Settings</a></li>
-                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
                         <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()"><i class="bi bi-box-arrow-right me-2"></i> Logout</a></li>
                     </ul>
                 </div>
             </div>
         </div>
 
-        <div class="row g-3 mb-4">
+        <div class="row g-3 mb-4 mt-4">
             <div class="col-md-3">
                 <div class="card kpi-card bg-gradient-primary h-100 text-white">
                     <div class="card-body d-flex justify-content-between align-items-center">
@@ -287,8 +363,30 @@ function getStatusBadge($status)
             </div>
         </div>
 
+        <div class="row g-3 mb-4">
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-transparent py-3">
+                        <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-bar-chart-line me-2"></i> Weekly Volume</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="volumeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-transparent py-3">
+                        <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-pie-chart me-2"></i> Shipment Status</h5>
+                    </div>
+                    <div class="card-body d-flex justify-content-center align-items-center">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="row g-3">
-            
             <div class="col-lg-8">
                 <div class="card shadow-sm border-0 h-100">
                     <div class="card-header bg-transparent py-3">
@@ -363,6 +461,7 @@ function getStatusBadge($status)
     <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <script src="../assets/main.js"></script>
 
@@ -376,8 +475,81 @@ function getStatusBadge($status)
                 "ordering": false,
                 "info": false
             });
+
+            // ================== CHARTS CONFIG ==================
+
+            // 1. Status Distribution (Doughnut)
+            const ctxStatus = document.getElementById('statusChart').getContext('2d');
+            new Chart(ctxStatus, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Booked', 'In Transit', 'Arrived', 'Delivered'],
+                    datasets: [{
+                        data: [<?= $stat_booked ?>, <?= $stat_transit ?>, <?= $stat_arrived ?>, <?= $stat_delivered ?>],
+                        backgroundColor: ['#6c757d', '#0d6efd', '#ffc107', '#198754'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#adb5bd'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 2. Weekly Volume (Bar) - NOW DYNAMIC!
+            const ctxVolume = document.getElementById('volumeChart').getContext('2d');
+            new Chart(ctxVolume, {
+                type: 'bar',
+                data: {
+                    labels: <?= json_encode($chartLabels) ?>,
+                    datasets: [{
+                        label: 'Shipments',
+                        data: <?= json_encode($chartCounts) ?>,
+                        backgroundColor: '#0d6efd',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#333'
+                            },
+                            ticks: {
+                                stepSize: 1,
+                                color: '#adb5bd'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#adb5bd'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
         });
     </script>
 
 </body>
+
 </html>

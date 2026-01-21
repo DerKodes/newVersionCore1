@@ -120,11 +120,11 @@ function getProgressBar($status)
     if ($status === 'BOOKED') {
         return '<span class="badge rounded-pill bg-secondary px-3 py-2"><i class="bi bi-journal-plus me-1"></i> BOOKED</span>';
     }
-    
+
     if ($status === 'CONSOLIDATED') {
         return '<span class="badge rounded-pill bg-info text-dark px-3 py-2"><i class="bi bi-box-seam me-1"></i> CONSOLIDATED</span>';
     }
-    
+
     if ($status === 'READY_TO_DISPATCH') {
         return '<span class="badge rounded-pill bg-warning text-dark px-3 py-2"><i class="bi bi-box-arrow-right me-1"></i> READY TO DISPATCH</span>';
     }
@@ -132,13 +132,13 @@ function getProgressBar($status)
     // GROUP 2: MOVEMENT STAGES (Show Progress Bar)
     $steps = ['IN_TRANSIT', 'ARRIVED', 'DELIVERED'];
     $currentStep = array_search($status, $steps);
-    
+
     // Default fallback
-    if ($currentStep === false) return '<span class="badge bg-light text-dark border">'.$status.'</span>';
+    if ($currentStep === false) return '<span class="badge bg-light text-dark border">' . $status . '</span>';
 
     // Calculate width: 33%, 66%, 100%
     $width = (($currentStep + 1) / count($steps)) * 100;
-    
+
     // Color Logic
     $color = ($status == 'DELIVERED') ? 'bg-success' : 'bg-primary';
     if ($status == 'ARRIVED') $color = 'bg-warning'; // Orange for attention
@@ -150,10 +150,10 @@ function getProgressBar($status)
         <span>Done</span>
     </div>
     <div class="progress shadow-sm" style="height: 8px; border-radius: 4px;">
-        <div class="progress-bar progress-bar-striped progress-bar-animated '.$color.'" role="progressbar" style="width: '.$width.'%"></div>
+        <div class="progress-bar progress-bar-striped progress-bar-animated ' . $color . '" role="progressbar" style="width: ' . $width . '%"></div>
     </div>
     <div class="text-center mt-1">
-        <span class="badge '.$color.' rounded-pill">'.$status.'</span>
+        <span class="badge ' . $color . ' rounded-pill">' . $status . '</span>
     </div>';
 }
 ?>
@@ -163,7 +163,7 @@ function getProgressBar($status)
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shipment Booking</title>
+    <title>Shipments</title>
 
     <link rel="stylesheet" href="../assets/style.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -173,51 +173,160 @@ function getProgressBar($status)
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
 
     <style>
-        .leaflet-routing-container { display: none !important; }
+        .leaflet-routing-container {
+            display: none !important;
+        }
 
         /* Global Font & Transition */
-        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; transition: background-color 0.3s, color 0.3s; }
-        
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
         /* Layout Fixes */
-        body.sidebar-closed .sidebar { margin-left: -250px; }
-        body.sidebar-closed .content { margin-left: 0; width: 100%; }
-        .content { width: calc(100% - 250px); margin-left: 250px; transition: all 0.3s; }
-        @media (max-width: 768px) { .content { width: 100%; margin-left: 0; } }
+        body.sidebar-closed .sidebar {
+            margin-left: -250px;
+        }
+
+        body.sidebar-closed .content {
+            margin-left: 0;
+            width: 100%;
+        }
+
+        .content {
+            width: calc(100% - 250px);
+            margin-left: 250px;
+            transition: all 0.3s;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                width: 100%;
+                margin-left: 0;
+            }
+        }
+
+        /* 🟢 STICKY HEADER */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background-color: #fff;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 15px 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
 
         /* Dark Mode Variables */
         :root {
-            --dark-bg: #121212; --dark-card: #1e1e1e; --dark-text: #e0e0e0;
-            --dark-border: #333333; --dark-table-head: #2c2c2c; --dark-hover: rgba(255,255,255,0.05);
+            --dark-bg: #121212;
+            --dark-card: #1e1e1e;
+            --dark-text: #e0e0e0;
+            --dark-border: #333333;
+            --dark-table-head: #2c2c2c;
+            --dark-hover: rgba(255, 255, 255, 0.05);
         }
 
         /* Dark Mode Styles */
-        body.dark-mode { background-color: var(--dark-bg) !important; color: var(--dark-text) !important; }
-        
-        body.dark-mode .card { background-color: var(--dark-card); border: 1px solid var(--dark-border); color: var(--dark-text); }
-        body.dark-mode .card-header { background-color: rgba(255, 255, 255, 0.05) !important; border-bottom: 1px solid var(--dark-border); }
-        body.dark-mode .card-header h5 { color: #fff !important; }
-        
-        body.dark-mode .header { background-color: var(--dark-card); border-bottom: 1px solid var(--dark-border); color: var(--dark-text); }
-        
-        /* Tables */
-        body.dark-mode .table { color: var(--dark-text); border-color: var(--dark-border); --bs-table-bg: transparent; }
-        body.dark-mode .table .table-light { background-color: var(--dark-table-head); color: #fff; border-color: var(--dark-border); }
-        body.dark-mode .table .table-light th { background-color: var(--dark-table-head); color: #fff; border-bottom: 1px solid var(--dark-border); }
-        body.dark-mode .table tbody td { background-color: var(--dark-card); color: var(--dark-text); border-color: var(--dark-border); }
-        body.dark-mode .table-hover tbody tr:hover td { background-color: var(--dark-hover); color: #fff; }
-        body.dark-mode .table .text-primary { color: #6ea8fe !important; } /* Lighter blue links */
+        body.dark-mode {
+            background-color: var(--dark-bg) !important;
+            color: var(--dark-text) !important;
+        }
 
-        /* Dropdowns & Forms */
-        body.dark-mode .form-select, body.dark-mode input[type="search"] { background-color: #2c2c2c; border-color: var(--dark-border); color: #fff; }
-        body.dark-mode .dropdown-menu { background-color: var(--dark-card); border: 1px solid var(--dark-border); }
-        body.dark-mode .dropdown-item { color: var(--dark-text); }
-        body.dark-mode .dropdown-item:hover { background-color: #333; color: #fff; }
-        
-        body.dark-mode .text-muted { color: #a0a0a0 !important; }
-        
+        /* Sticky Header Dark Mode */
+        body.dark-mode .header {
+            background-color: var(--dark-card) !important;
+            border-bottom: 1px solid var(--dark-border);
+            color: var(--dark-text);
+        }
+
+        body.dark-mode .card {
+            background-color: var(--dark-card);
+            border: 1px solid var(--dark-border);
+            color: var(--dark-text);
+        }
+
+        body.dark-mode .card-header {
+            background-color: rgba(255, 255, 255, 0.05) !important;
+            border-bottom: 1px solid var(--dark-border);
+        }
+
+        body.dark-mode .card-header h5 {
+            color: #fff !important;
+        }
+
+        /* Tables */
+        body.dark-mode .table {
+            color: var(--dark-text);
+            border-color: var(--dark-border);
+            --bs-table-bg: transparent;
+        }
+
+        body.dark-mode .table .table-light {
+            background-color: var(--dark-table-head);
+            color: #fff;
+            border-color: var(--dark-border);
+        }
+
+        body.dark-mode .table .table-light th {
+            background-color: var(--dark-table-head);
+            color: #fff;
+            border-bottom: 1px solid var(--dark-border);
+        }
+
+        body.dark-mode .table tbody td {
+            background-color: var(--dark-card);
+            color: var(--dark-text);
+            border-color: var(--dark-border);
+        }
+
+        body.dark-mode .table-hover tbody tr:hover td {
+            background-color: var(--dark-hover);
+            color: #fff;
+        }
+
+        body.dark-mode .table .text-primary {
+            color: #6ea8fe !important;
+        }
+
+        body.dark-mode .text-muted {
+            color: #a0a0a0 !important;
+        }
+
+        /* Forms & Inputs */
+        body.dark-mode .form-select {
+            background-color: #2c2c2c;
+            border-color: var(--dark-border);
+            color: #fff;
+        }
+
+        body.dark-mode .dropdown-menu {
+            background-color: var(--dark-card);
+            border: 1px solid var(--dark-border);
+        }
+
+        body.dark-mode .dropdown-item {
+            color: var(--dark-text);
+        }
+
+        body.dark-mode .dropdown-item:hover {
+            background-color: #333;
+            color: #fff;
+        }
+
         /* Modal Fix */
-        body.dark-mode .modal-content { background-color: var(--dark-card); border: 1px solid var(--dark-border); color: var(--dark-text); }
-        body.dark-mode .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+        body.dark-mode .modal-content {
+            background-color: var(--dark-card);
+            border: 1px solid var(--dark-border);
+            color: var(--dark-text);
+        }
+
+        body.dark-mode .btn-close {
+            filter: invert(1) grayscale(100%) brightness(200%);
+        }
     </style>
 </head>
 
@@ -240,7 +349,7 @@ function getProgressBar($status)
                 <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
                 <h2 class="mb-0 ms-2" id="pageTitle">Shipment Booking</h2>
             </div>
-            
+
             <div class="theme-toggle-container">
                 <div class="d-flex align-items-center me-3">
                     <span class="theme-label me-2 small">Dark Mode</span>
@@ -256,7 +365,9 @@ function getProgressBar($status)
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end shadow">
                         <li><a class="dropdown-item" href="#">Settings</a></li>
-                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
                         <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()">Logout</a></li>
                     </ul>
                 </div>
@@ -264,9 +375,9 @@ function getProgressBar($status)
         </div>
 
         <?php if (isset($_GET['created'])): ?>
-            <?php endif; ?>
+        <?php endif; ?>
 
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 mt-4">
             <div class="card-header bg-white py-3">
                 <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-truck me-2"></i> Active Shipments</h5>
             </div>
@@ -324,7 +435,7 @@ function getProgressBar($status)
                                                 <input type="hidden" name="shipment_id" value="<?= $s['shipment_id'] ?>">
                                                 <select name="status" class="form-select form-select-sm">
                                                     <?php
-                                                    $statuses = ['BOOKED','CONSOLIDATED','READY_TO_DISPATCH','IN_TRANSIT','ARRIVED','DELIVERED'];
+                                                    $statuses = ['BOOKED', 'CONSOLIDATED', 'READY_TO_DISPATCH', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED'];
                                                     foreach ($statuses as $st):
                                                         if ($st === 'IN_TRANSIT' && !$s['consolidated']) continue;
                                                     ?>
@@ -366,7 +477,7 @@ function getProgressBar($status)
     <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
+
     <script src="../scripts/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
     <script src="../scripts/shipment_map.js" defer></script>
@@ -377,9 +488,12 @@ function getProgressBar($status)
         $(document).ready(function() {
             // DataTables
             $('#shipmentTable').DataTable({
-                "order": [[ 0, "desc" ]]
+                "order": [
+                    [0, "desc"]
+                ]
             });
         });
     </script>
 </body>
+
 </html>

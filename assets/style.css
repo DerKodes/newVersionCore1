@@ -325,3 +325,8 @@ body.dark-mode .btn-close {
   
   /* Optional: Overlay effect could be added here for mobile */
 }
+
+/* Add to assets/style.css */
+tr[style*="background-color"] {
+    transition: background-color 0.5s ease;
+}

@@ -7,6 +7,7 @@ include "../includes/auth_check.php";
 if (isset($_POST['create_shipment'])) {
     $po_id = (int) $_POST['po_id'];
 
+    // 1. Fetch PO details
     $stmt = $conn->prepare("SELECT * FROM purchase_orders WHERE po_id = ? AND status = 'APPROVED'");
     $stmt->bind_param("i", $po_id);
     $stmt->execute();
@@ -16,13 +17,40 @@ if (isset($_POST['create_shipment'])) {
 
     $shipment_code = "SHIP-" . strtoupper(uniqid());
 
-    $stmt = $conn->prepare("INSERT INTO shipments (po_id, shipment_code, origin, destination, transport_mode, status, consolidated) VALUES (?, ?, ?, ?, ?, 'BOOKED', 0)");
-    $stmt->bind_param("issss", $po_id, $shipment_code, $po['origin_address'], $po['destination_address'], $po['transport_mode']);
+    // Check if 'weight' exists in PO, otherwise default to null
+    $weight = isset($po['weight']) ? (float)$po['weight'] : null;
+
+    // 2. Create Shipment in Core 1 (NOW SAVING WEIGHT LOCALLY)
+    // Added 'weight' to the INSERT query
+    $stmt = $conn->prepare("INSERT INTO shipments (po_id, shipment_code, origin, destination, transport_mode, status, consolidated, weight) VALUES (?, ?, ?, ?, ?, 'BOOKED', 0, ?)");
+    // Added 'd' to type string for the decimal/double weight
+    $stmt->bind_param("issssd", $po_id, $shipment_code, $po['origin_address'], $po['destination_address'], $po['transport_mode'], $weight);
     $stmt->execute();
 
+    // 3. Update PO Status
     $stmt = $conn->prepare("UPDATE purchase_orders SET status = 'BOOKED' WHERE po_id = ?");
     $stmt->bind_param("i", $po_id);
     $stmt->execute();
+
+    // =========================================================================
+    // START: CORE 2 API INTEGRATION
+    // =========================================================================
+    require_once "../api/core2_integration.php"; 
+
+    $core2Data = [
+        'customer_name' => $po['supplier_name'] ?? 'Unknown Supplier', 
+        'origin_address' => $po['origin_address'],
+        'destination_address' => $po['destination_address'],
+        'carrier_type' => $po['transport_mode'],
+        'status' => 'pending',
+        'weight' => $weight, // Sending the same weight we just saved
+        'special_instructions' => 'Ref: ' . $shipment_code
+    ];
+
+    $response = Core2Integration::createBooking($core2Data);
+    // =========================================================================
+    // END: CORE 2 API INTEGRATION
+    // =========================================================================
 
     header("Location: shipments.php?created=1");
     exit();
@@ -293,7 +321,6 @@ function getProgressBar($status)
                     <table class="table table-hover align-middle" id="shipmentTable">
                         <thead class="table-light">
                             <tr>
-                                <th>ID</th>
                                 <th>Tracking</th>
                                 <th>Status</th>
                                 <th>Consolidation</th>
@@ -304,7 +331,6 @@ function getProgressBar($status)
                         <tbody>
                             <?php while ($s = $list->fetch_assoc()): ?>
                                 <tr>
-                                    <td><?= $s['shipment_id'] ?></td>
                                     <td class="fw-bold text-primary"><?= htmlspecialchars($s['shipment_code']) ?></td>
 
                                     <td style="min-width: 180px;">

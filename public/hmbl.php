@@ -5,11 +5,50 @@ include "../includes/auth_check.php";
 include "../includes/role_check.php";
 
 // 1. ROBUST ADMIN CHECK
-// Get role safely, trim whitespace, and convert to lowercase for comparison
 $role = isset($_SESSION['role']) ? strtolower(trim($_SESSION['role'])) : '';
 $isAdmin = ($role === 'admin' || $role === 'administrator');
 
-/* ================= CREATE HMBL ================= */
+// ================= API HELPER: FETCH LOGISTICS ASSETS ================= //
+function getLogisticsAssets()
+{
+    $apiUrl = "http://192.168.1.31/logistics1/api/assets.php?action=cargos_vehicles";
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $apiUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && $response) {
+        return json_decode($response, true);
+    }
+    return null;
+}
+
+// ================= PREPARE ASSET MAPPING ================= //
+$assetMap = [];
+$apiData = getLogisticsAssets();
+
+if ($apiData && isset($apiData['success']) && $apiData['success']) {
+    // Check multiple paths in case API structure varies
+    $vehicles = $apiData['data']['vehicles']['items'] ?? $apiData['vehicles']['items'] ?? [];
+    $cargos   = $apiData['data']['cargos']['items']   ?? $apiData['cargos']['items']   ?? [];
+
+    $allItems = array_merge($vehicles, $cargos);
+
+    foreach ($allItems as $item) {
+        if (isset($item['asset_name']) && isset($item['tracking_number'])) {
+            // NORMALIZE: Lowercase and trim spaces so matches are easy
+            $cleanName = strtolower(trim($item['asset_name']));
+            $assetMap[$cleanName] = $item['tracking_number'];
+        }
+    }
+}
+
+/* ================= CREATE HMBL HANDLER ================= */
 if ($isAdmin && isset($_POST['create_hmbl'])) {
     $conso_id = (int) $_POST['consolidation_id'];
     $user_id  = $_SESSION['user_id'];
@@ -21,22 +60,22 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
         $stmt->bind_param("i", $conso_id);
         $stmt->execute();
         $c = $stmt->get_result()->fetch_assoc();
-        if (!$c || $c['status'] !== 'OPEN') throw new Exception("Consolidation locked.");
+        if (!$c || $c['status'] !== 'OPEN') throw new Exception("Consolidation locked or invalid.");
 
         $chk = $conn->prepare("SELECT 1 FROM hmbl WHERE consolidation_id=?");
         $chk->bind_param("i", $conso_id);
         $chk->execute();
-        if ($chk->get_result()->num_rows > 0) throw new Exception("BL exists.");
+        if ($chk->get_result()->num_rows > 0) throw new Exception("BL already exists.");
 
         $list = $conn->prepare("SELECT s.shipment_id, s.status, s.consolidated FROM shipments s JOIN consolidation_shipments cs ON s.shipment_id = cs.shipment_id WHERE cs.consolidation_id=?");
         $list->bind_param("i", $conso_id);
         $list->execute();
         $result = $list->get_result();
-        if ($result->num_rows < 1) throw new Exception("No shipments.");
+        if ($result->num_rows < 1) throw new Exception("No shipments found.");
 
         while ($s = $result->fetch_assoc()) {
             if ($s['consolidated'] != 1) throw new Exception("Shipment not consolidated.");
-            if ($s['status'] !== 'CONSOLIDATED') throw new Exception("Must be BEFORE transit.");
+            if ($s['status'] !== 'CONSOLIDATED') throw new Exception("Shipment status invalid.");
         }
 
         $hmbl_no = "HMBL-" . date("Y") . "-" . strtoupper(uniqid());
@@ -52,8 +91,6 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
             $stmtAttach->execute();
         }
 
-        // 2. TRUNCATION FIX: CHANGED 'READY_TO_DISPATCH' to 'DISPATCH'
-        // This ensures the status fits within typical VARCHAR limits
         $stmt = $conn->prepare("UPDATE consolidations SET status='DISPATCH' WHERE consolidation_id=?");
         $stmt->bind_param("i", $conso_id);
         $stmt->execute();
@@ -71,6 +108,7 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
     }
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -112,14 +150,12 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
             }
         }
 
-        /* Dark Mode */
+        /* Dark Mode Support */
         :root {
             --dark-bg: #121212;
             --dark-card: #1e1e1e;
             --dark-text: #e0e0e0;
             --dark-border: #333333;
-            --dark-table-head: #2c2c2c;
-            --dark-hover: rgba(255, 255, 255, 0.05);
         }
 
         body.dark-mode {
@@ -133,56 +169,6 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
             color: var(--dark-text);
         }
 
-        body.dark-mode .card-header {
-            background-color: rgba(255, 255, 255, 0.05) !important;
-            border-bottom: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .card-header h5 {
-            color: #fff !important;
-        }
-
-        body.dark-mode .header {
-            background-color: var(--dark-card);
-            border-bottom: 1px solid var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        /* Tables */
-        body.dark-mode .table {
-            color: var(--dark-text);
-            border-color: var(--dark-border);
-            --bs-table-bg: transparent;
-        }
-
-        body.dark-mode .table .table-light {
-            background-color: var(--dark-table-head);
-            color: #fff;
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .table .table-light th {
-            background-color: var(--dark-table-head);
-            color: #fff;
-            border-bottom: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .table tbody td {
-            background-color: var(--dark-card);
-            color: var(--dark-text);
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .table-hover tbody tr:hover td {
-            background-color: var(--dark-hover);
-            color: #fff;
-        }
-
-        body.dark-mode .table .text-primary {
-            color: #6ea8fe !important;
-        }
-
-        /* 🟢 FORM INPUT FIXES FOR DARK MODE */
         body.dark-mode .form-control,
         body.dark-mode .form-select {
             background-color: #2c2c2c !important;
@@ -190,30 +176,6 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
             color: #fff !important;
         }
 
-        body.dark-mode .form-control::placeholder {
-            color: #aaa !important;
-            opacity: 1;
-        }
-
-        body.dark-mode .dropdown-menu {
-            background-color: var(--dark-card);
-            border: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .dropdown-item {
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .dropdown-item:hover {
-            background-color: #333;
-            color: #fff;
-        }
-
-        body.dark-mode .text-muted {
-            color: #a0a0a0 !important;
-        }
-
-        /* 4. BLUR STYLE */
         .access-denied-blur {
             filter: blur(8px);
             pointer-events: none;
@@ -241,28 +203,9 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
                 <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
                 <h2 class="mb-0 ms-2" id="pageTitle">House Bill of Lading</h2>
             </div>
-            <div class="theme-toggle-container">
-                <div class="d-flex align-items-center me-3">
-                    <span class="theme-label me-2 small">Dark Mode</span>
-                    <label class="theme-switch"><input type="checkbox" id="themeToggle"><span class="slider"></span></label>
-                </div>
-                <div class="dropdown">
-                    <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle"></i>
-                        <span class="d-none d-md-block small"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow">
-                        <li><a class="dropdown-item" href="#">Settings</a></li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()">Logout</a></li>
-                    </ul>
-                </div>
-            </div>
         </div>
 
-        <div class="row g-4">
+        <div class="row g-4 m-2">
             <div class="col-lg-5">
                 <div class="card shadow-sm border-0 h-100">
                     <div class="card-header bg-white py-3">
@@ -270,8 +213,9 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
                     </div>
                     <div class="card-body">
                         <?php
+                        // Fetch Open Consolidations
                         $consos = $conn->query("
-                            SELECT c.consolidation_id, c.consolidation_code, c.trip_no, c.origin, c.destination, po.sender_name, po.receiver_name
+                            SELECT c.consolidation_id, c.consolidation_code, c.trip_no, c.origin, c.destination, c.vehicle_set, po.sender_name, po.receiver_name
                             FROM consolidations c
                             JOIN consolidation_shipments cs ON c.consolidation_id = cs.consolidation_id
                             JOIN shipments s ON cs.shipment_id = s.shipment_id
@@ -281,37 +225,73 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
                             ORDER BY c.created_at DESC
                         ");
                         ?>
+
                         <form method="POST">
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Select Active Consolidation</label>
                                 <select name="consolidation_id" id="consoSelect" class="form-select" required>
                                     <option value="">-- Choose Consolidation --</option>
                                     <?php while ($c = $consos->fetch_assoc()): ?>
+                                        <?php
+                                        // 1. Get DB Name and Normalize
+                                        $rawName = $c['vehicle_set'];
+                                        $cleanDBName = strtolower(trim($rawName));
+                                        $trackingNumber = '';
+
+                                        // 2. SMART MATCH LOGIC
+                                        // First, try Exact Match
+                                        if (isset($assetMap[$cleanDBName])) {
+                                            $trackingNumber = $assetMap[$cleanDBName];
+                                        }
+                                        // Second, try "Starts With" Match (Fix for "C" vs "Cargo Van")
+                                        else {
+                                            foreach ($assetMap as $apiName => $track) {
+                                                // If API name starts with "c" (from DB), it's a match!
+                                                if (!empty($cleanDBName) && strpos($apiName, $cleanDBName) === 0) {
+                                                    $trackingNumber = $track;
+                                                    break; // Stop at first partial match
+                                                }
+                                            }
+                                        }
+                                        ?>
                                         <option value="<?= $c['consolidation_id'] ?>"
                                             data-trip="<?= $c['trip_no'] ?>"
                                             data-shipper="<?= htmlspecialchars($c['sender_name']) ?>"
                                             data-consignee="<?= htmlspecialchars($c['receiver_name']) ?>"
                                             data-pol="<?= htmlspecialchars($c['origin']) ?>"
-                                            data-pod="<?= htmlspecialchars($c['destination']) ?>">
+                                            data-pod="<?= htmlspecialchars($c['destination']) ?>"
+
+                                            data-vessel="<?= htmlspecialchars($trackingNumber) ?>">
                                             <?= $c['consolidation_code'] ?> | <?= $c['trip_no'] ?>
-                                            (<?= $c['origin'] ?> → <?= $c['destination'] ?>)
+                                            (<?= $rawName ?>)
                                         </option>
                                     <?php endwhile; ?>
                                 </select>
                             </div>
+
                             <div class="row g-2 mb-2">
                                 <div class="col-md-6"><label class="small text-muted">Shipper</label><input name="shipper" id="shipper" class="form-control form-control-sm" placeholder="Shipper" required></div>
                                 <div class="col-md-6"><label class="small text-muted">Consignee</label><input name="consignee" id="consignee" class="form-control form-control-sm" placeholder="Consignee" required></div>
                             </div>
+
                             <div class="mb-2"><label class="small text-muted">Notify Party</label><input name="notify_party" id="notify" class="form-control form-control-sm" placeholder="Notify Party"></div>
+
                             <div class="row g-2 mb-2">
                                 <div class="col-md-6"><label class="small text-muted">Port of Loading</label><input name="pol" id="pol" class="form-control form-control-sm" placeholder="Port of Loading" required></div>
                                 <div class="col-md-6"><label class="small text-muted">Port of Discharge</label><input name="pod" id="pod" class="form-control form-control-sm" placeholder="Port of Discharge" required></div>
                             </div>
+
                             <div class="row g-2 mb-3">
-                                <div class="col-md-6"><label class="small text-muted">Vessel</label><input name="vessel" class="form-control form-control-sm" placeholder="Vessel / Truck ID"></div>
-                                <div class="col-md-6"><label class="small text-muted">Trip No</label><input name="voyage" id="trip_no" class="form-control form-control-sm" placeholder="Trip No" readonly></div>
+                                <div class="col-md-6">
+                                    <label class="small text-muted">Vessel (Tracking No.)</label>
+                                    <input name="vessel" id="vessel" class="form-control form-control-sm" placeholder="Auto-fills from API...">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small text-muted">Trip No</label>
+                                    <input name="voyage" id="trip_no" class="form-control form-control-sm" placeholder="Trip No" readonly>
+                                </div>
                             </div>
+
                             <button name="create_hmbl" class="btn btn-primary w-100"><i class="bi bi-printer me-2"></i> Issue HMBL & Lock</button>
                         </form>
                     </div>
@@ -341,7 +321,7 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
                                             <td class="fw-bold text-primary"><?= $h['hmbl_no'] ?></td>
                                             <td><?= $h['consolidation_code'] ?></td>
                                             <td class="small text-muted"><?= date("M d, Y", strtotime($h['created_at'])) ?></td>
-                                            <td><a href="view_hmbl.php?id=<?= $h['hmbl_id'] ?>" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> View BL</a></td>
+                                            <td><a href="view_hmbl.php?id=<?= $h['hmbl_id'] ?>" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-eye"></i> View</a></td>
                                         </tr>
                                     <?php endwhile; ?>
                                 </tbody>
@@ -359,6 +339,7 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="../assets/main.js"></script>
+
     <script>
         $(document).ready(function() {
             $('#hmblTable').DataTable({
@@ -367,14 +348,29 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
                 ]
             });
         });
+
+        // ==========================================
+        // AUTO FILL LOGIC
+        // ==========================================
         document.getElementById('consoSelect').addEventListener('change', function() {
             const opt = this.options[this.selectedIndex];
+            const trackingNum = opt.getAttribute('data-vessel');
+            const vesselInput = document.getElementById('vessel');
+
             document.getElementById('trip_no').value = opt.getAttribute('data-trip') || '';
             document.getElementById('shipper').value = opt.getAttribute('data-shipper') || '';
             document.getElementById('consignee').value = opt.getAttribute('data-consignee') || '';
             document.getElementById('notify').value = opt.getAttribute('data-consignee') || '';
             document.getElementById('pol').value = opt.getAttribute('data-pol') || '';
             document.getElementById('pod').value = opt.getAttribute('data-pod') || '';
+
+            if (trackingNum) {
+                vesselInput.value = trackingNum;
+                vesselInput.style.backgroundColor = "#e8f0fe";
+                setTimeout(() => vesselInput.style.backgroundColor = "", 1000);
+            } else {
+                vesselInput.value = "";
+            }
         });
 
         <?php if (!$isAdmin): ?>
@@ -382,11 +378,9 @@ if ($isAdmin && isset($_POST['create_hmbl'])) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Access Denied',
-                    html: '<b>Administrator Access Only.</b><br>You do not have permission to use this module.',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: false, // Prevents closing
-                    footer: '<a href="dashboard.php" class="btn btn-primary btn-sm">Return to Dashboard</a>'
+                    text: 'Administrator Access Only.',
+                    showConfirmButton: false,
+                    footer: '<a href="dashboard.php">Return</a>'
                 });
             });
         <?php endif; ?>

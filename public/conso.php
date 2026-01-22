@@ -1,19 +1,60 @@
 <?php
 session_start();
 
+// Adjust these paths if your file structure is different
 include "../api/db.php";
 include "../includes/auth_check.php";
 include "../includes/role_check.php";
 
 // 1. ROBUST ADMIN CHECK
-// Get role safely, trim whitespace, and convert to lowercase for comparison
 $role = isset($_SESSION['role']) ? strtolower(trim($_SESSION['role'])) : '';
 $isAdmin = ($role === 'admin' || $role === 'administrator');
 
+// ================= API HELPER FUNCTION ================= //
+function getLogisticsAssets()
+{
+    // Ensure this IP is correct and reachable
+    $apiUrl = "http://192.168.1.31/logistics1/api/assets.php?action=cargos_vehicles";
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $apiUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+
+    $response = curl_exec($ch);
+
+    if (curl_errno($ch)) {
+        return null; // Silently fail if API is down
+    }
+
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && $response) {
+        return json_decode($response, true);
+    }
+    return null;
+}
+
+$apiAssets = getLogisticsAssets();
+$vehicles = [];
+
+if ($apiAssets && isset($apiAssets['success']) && $apiAssets['success']) {
+    if (isset($apiAssets['data']['vehicles']['items'])) {
+        foreach ($apiAssets['data']['vehicles']['items'] as $v) {
+            $vehicles[] = ['id' => $v['id'], 'name' => $v['asset_name'], 'type' => 'Vehicle', 'status' => $v['status']];
+        }
+    }
+    if (isset($apiAssets['data']['cargos']['items'])) {
+        foreach ($apiAssets['data']['cargos']['items'] as $c) {
+            $vehicles[] = ['id' => $c['id'], 'name' => $c['asset_name'], 'type' => 'Cargo', 'status' => $c['status']];
+        }
+    }
+}
+
 /* ================= CREATE CONSOLIDATION ================= */
 if ($isAdmin && isset($_POST['create_consolidation'])) {
-
-    $vehicle_set = $_POST['vehicle_set'] ?? 'A';
+    $vehicle_asset = $_POST['vehicle_asset'] ?? 'Unknown';
 
     if (empty($_POST['shipments'])) die("Select at least one shipment.");
 
@@ -39,15 +80,19 @@ if ($isAdmin && isset($_POST['create_consolidation'])) {
             $stmt->execute();
             $s = $stmt->get_result()->fetch_assoc();
 
-            if (empty($s['transport_mode']) || $s['transport_mode'] !== $first['transport_mode'] || strcasecmp(trim($s['origin']), trim($first['origin'])) !== 0 || strcasecmp(trim($s['destination']), trim($first['destination'])) !== 0) {
-                throw new Exception("All shipments must share same route and mode.");
+            // FIXED VALIDATION:
+            // 1. We still require the same Transport Mode (e.g. can't mix Air and Sea).
+            // 2. We REMOVED the strict 'strcasecmp' check for Origin/Destination.
+            //    This allows the AI to group "Manila" and "Pasay" together into one trip (Milk Run).
+            if (empty($s['transport_mode']) || $s['transport_mode'] !== $first['transport_mode']) {
+                throw new Exception("Shipments must have the same Transport Mode (e.g., all Land).");
             }
         }
 
         /* Create */
         $code = "CONSO-" . strtoupper(uniqid());
         $stmt = $conn->prepare("INSERT INTO consolidations (consolidation_code, trip_no, vehicle_set, transport_mode, origin, destination, status, created_by) VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)");
-        $stmt->bind_param("ssssssi", $code, $trip_no, $vehicle_set, $first['transport_mode'], $first['origin'], $first['destination'], $user_id);
+        $stmt->bind_param("ssssssi", $code, $trip_no, $vehicle_asset, $first['transport_mode'], $first['origin'], $first['destination'], $user_id);
         $stmt->execute();
         $conso_id = $conn->insert_id;
 
@@ -110,7 +155,7 @@ if ($isAdmin && isset($_POST['deconsolidate'])) {
 function getStatusBadge($status)
 {
     if ($status === 'OPEN') return '<span class="badge rounded-pill bg-success">OPEN</span>';
-    if ($status === 'DISPATCH' || $status === 'READY_TO_DISPATCH') return '<span class="badge rounded-pill bg-warning text-dark">READY</span>'; // Handle both old and new status
+    if ($status === 'DISPATCH' || $status === 'READY_TO_DISPATCH') return '<span class="badge rounded-pill bg-warning text-dark">READY</span>';
     if ($status === 'DECONSOLIDATED') return '<span class="badge rounded-pill bg-secondary">DECONSOLIDATED</span>';
     return '<span class="badge bg-light text-dark border">' . $status . '</span>';
 }
@@ -169,13 +214,12 @@ function getStatusBadge($status)
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
 
+        /* Dark Mode */
         :root {
             --dark-bg: #121212;
             --dark-card: #1e1e1e;
             --dark-text: #e0e0e0;
             --dark-border: #333333;
-            --dark-table-head: #2c2c2c;
-            --dark-hover: rgba(255, 255, 255, 0.05);
         }
 
         body.dark-mode {
@@ -183,58 +227,16 @@ function getStatusBadge($status)
             color: var(--dark-text) !important;
         }
 
+        body.dark-mode .card,
         body.dark-mode .header {
             background-color: var(--dark-card);
-            border-bottom: 1px solid var(--dark-border);
+            border-color: var(--dark-border);
             color: var(--dark-text);
-        }
-
-        body.dark-mode .card {
-            background-color: var(--dark-card);
-            border: 1px solid var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .card-header {
-            background-color: rgba(255, 255, 255, 0.05) !important;
-            border-bottom: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .card-header h5 {
-            color: #fff !important;
         }
 
         body.dark-mode .table {
             color: var(--dark-text);
             border-color: var(--dark-border);
-            --bs-table-bg: transparent;
-        }
-
-        body.dark-mode .table .table-light {
-            background-color: var(--dark-table-head);
-            color: #fff;
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .table .table-light th {
-            background-color: var(--dark-table-head);
-            color: #fff;
-            border-bottom: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .table tbody td {
-            background-color: var(--dark-card);
-            color: var(--dark-text);
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .table-hover tbody tr:hover td {
-            background-color: var(--dark-hover);
-            color: #fff;
-        }
-
-        body.dark-mode .table .text-primary {
-            color: #6ea8fe !important;
         }
 
         body.dark-mode .form-control,
@@ -244,29 +246,9 @@ function getStatusBadge($status)
             color: #fff;
         }
 
-        body.dark-mode .dropdown-menu {
-            background-color: var(--dark-card);
-            border: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .dropdown-item {
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .dropdown-item:hover {
-            background-color: #333;
-            color: #fff;
-        }
-
-        body.dark-mode .text-muted {
-            color: #a0a0a0 !important;
-        }
-
-        /* Access Denied Blur */
         .access-denied-blur {
             filter: blur(8px);
             pointer-events: none;
-            user-select: none;
             opacity: 0.6;
         }
     </style>
@@ -318,6 +300,16 @@ function getStatusBadge($status)
                         <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-plus-square me-2"></i> Create New Consolidation</h5>
                     </div>
                     <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3 p-2 border rounded bg-light">
+                            <div>
+                                <strong class="text-primary"><i class="bi bi-cpu-fill"></i> AI Route Planner</strong>
+                                <div id="aiStatus" class="small text-muted" style="font-size: 0.8rem;">Ready to optimize</div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="runAiOptimization()">
+                                <i class="bi bi-magic"></i> Auto-Group
+                            </button>
+                        </div>
+
                         <?php
                         $eligible = $conn->query("
                             SELECT s.* FROM shipments s 
@@ -325,21 +317,34 @@ function getStatusBadge($status)
                             AND NOT EXISTS (SELECT 1 FROM consolidation_shipments cs WHERE cs.shipment_id = s.shipment_id)
                             ORDER BY origin, destination
                         ");
+
+                        if (!$eligible) {
+                            echo "<div class='alert alert-danger'>Database Error: " . $conn->error . "</div>";
+                        }
                         ?>
                         <form method="POST">
                             <div class="mb-3">
-                                <label class="form-label fw-bold">Select Vehicle Set</label>
-                                <select name="vehicle_set" class="form-select" required>
-                                    <option value="">-- Choose Set --</option>
-                                    <option value="A">SET A</option>
-                                    <option value="B">SET B</option>
-                                    <option value="C">SET C</option>
-                                    <option value="D">SET D</option>
+                                <label class="form-label fw-bold">Select Asset (From Logistic 1)</label>
+                                <select name="vehicle_asset" class="form-select" required>
+                                    <option value="">-- Choose Cargo or Vehicle --</option>
+                                    <?php if (empty($vehicles)): ?>
+                                        <option value="" disabled>No assets available from API</option>
+                                    <?php else: ?>
+                                        <?php foreach ($vehicles as $v): ?>
+                                            <option value="<?= htmlspecialchars($v['name']) ?>" <?= $v['status'] !== 'Operational' ? 'disabled' : '' ?>>
+                                                <?= htmlspecialchars($v['name']) ?> (<?= htmlspecialchars($v['type']) ?>) <?= $v['status'] !== 'Operational' ? '- ' . $v['status'] : '' ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                    <optgroup label="Offline Backups">
+                                        <option value="Generic Truck A">Generic Truck A</option>
+                                        <option value="Generic Van B">Generic Van B</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <label class="form-label fw-bold">Select Shipments to Group</label>
                             <div class="table-responsive border rounded mb-3" style="max-height: 400px; overflow-y: auto;">
-                                <table class="table table-hover mb-0">
+                                <table class="table table-hover mb-0" id="shipmentSelectionTable">
                                     <thead class="table-light sticky-top">
                                         <tr>
                                             <th style="width: 40px;"><i class="bi bi-check-lg"></i></th>
@@ -348,15 +353,15 @@ function getStatusBadge($status)
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php if ($eligible->num_rows > 0): ?>
+                                        <?php if ($eligible && $eligible->num_rows > 0): ?>
                                             <?php while ($s = $eligible->fetch_assoc()): ?>
                                                 <tr>
                                                     <td><input class="form-check-input" type="checkbox" name="shipments[]" value="<?= $s['shipment_id'] ?>"></td>
                                                     <td class="small fw-bold text-primary"><?= $s['shipment_code'] ?></td>
                                                     <td class="small">
-                                                        <div class="text-truncate" style="max-width: 150px;"><?= $s['origin'] ?></div>
+                                                        <div class="text-truncate origin-text" style="max-width: 150px;"><?= $s['origin'] ?></div>
                                                         <i class="bi bi-arrow-down text-muted"></i>
-                                                        <div class="text-truncate" style="max-width: 150px;"><?= $s['destination'] ?></div>
+                                                        <div class="text-truncate destination-text" style="max-width: 150px;"><?= $s['destination'] ?></div>
                                                     </td>
                                                 </tr>
                                             <?php endwhile; ?>
@@ -389,10 +394,14 @@ function getStatusBadge($status)
                                             LEFT JOIN hmbl h ON h.consolidation_id = c.consolidation_id
                                             WHERE c.status = 'OPEN' AND h.hmbl_id IS NULL
                                     ");
-                                    while ($c = $deconList->fetch_assoc()):
+                                    if ($deconList) {
+                                        while ($c = $deconList->fetch_assoc()):
                                     ?>
-                                        <option value="<?= $c['consolidation_id'] ?>"><?= $c['consolidation_code'] ?> (SET <?= $c['vehicle_set'] ?>)</option>
-                                    <?php endwhile; ?>
+                                            <option value="<?= $c['consolidation_id'] ?>"><?= $c['consolidation_code'] ?> (<?= htmlspecialchars($c['vehicle_set']) ?>)</option>
+                                    <?php
+                                        endwhile;
+                                    }
+                                    ?>
                                 </select>
                             </div>
                             <div class="col-md-5"><input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason for breakdown..." required></div>
@@ -413,26 +422,28 @@ function getStatusBadge($status)
                                         <th>Code</th>
                                         <th>Route</th>
                                         <th>Status</th>
-                                        <th>Set</th>
+                                        <th>Assigned Asset</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php $list = $conn->query("SELECT * FROM consolidations ORDER BY created_at DESC"); ?>
-                                    <?php while ($c = $list->fetch_assoc()): ?>
-                                        <tr>
-                                            <td class="fw-bold text-primary">
-                                                <?= $c['consolidation_code'] ?>
-                                                <div class="small text-muted fw-normal"><?= $c['trip_no'] ?></div>
-                                            </td>
-                                            <td>
-                                                <div class="small text-truncate" style="max-width: 120px;"><?= $c['origin'] ?></div>
-                                                <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
-                                                <div class="small text-truncate" style="max-width: 120px;"><?= $c['destination'] ?></div>
-                                            </td>
-                                            <td><?= getStatusBadge($c['status']) ?></td>
-                                            <td><span class="badge bg-dark">SET <?= $c['vehicle_set'] ?></span></td>
-                                        </tr>
-                                    <?php endwhile; ?>
+                                    <?php if ($list): ?>
+                                        <?php while ($c = $list->fetch_assoc()): ?>
+                                            <tr>
+                                                <td class="fw-bold text-primary">
+                                                    <?= $c['consolidation_code'] ?>
+                                                    <div class="small text-muted fw-normal"><?= $c['trip_no'] ?></div>
+                                                </td>
+                                                <td>
+                                                    <div class="small text-truncate" style="max-width: 120px;"><?= $c['origin'] ?></div>
+                                                    <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
+                                                    <div class="small text-truncate" style="max-width: 120px;"><?= $c['destination'] ?></div>
+                                                </td>
+                                                <td><?= getStatusBadge($c['status']) ?></td>
+                                                <td><span class="badge bg-dark"><i class="bi bi-truck me-1"></i> <?= htmlspecialchars($c['vehicle_set']) ?></span></td>
+                                            </tr>
+                                        <?php endwhile; ?>
+                                    <?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -445,6 +456,10 @@ function getStatusBadge($status)
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
+    <script src="../scripts/ai_consolidation.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="../assets/main.js"></script>
@@ -467,7 +482,6 @@ function getStatusBadge($status)
                     title: 'Access Denied',
                     html: '<b>Administrator Access Only.</b><br>You do not have permission to use this module.',
                     allowOutsideClick: false,
-                    allowEscapeKey: false,
                     showConfirmButton: false,
                     footer: '<a href="dashboard.php" class="btn btn-primary btn-sm">Return to Dashboard</a>'
                 });

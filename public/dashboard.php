@@ -20,7 +20,6 @@ include "../api/db.php";
 // ================== KPI QUERIES ==================
 $kpiShipments = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status!='DELIVERED'")->fetch_assoc()['c'];
 $kpiConso     = $conn->query("SELECT COUNT(*) c FROM consolidations WHERE status='OPEN'")->fetch_assoc()['c'];
-$kpiEvents    = $conn->query("SELECT COUNT(*) c FROM shipment_tracking")->fetch_assoc()['c'];
 $kpiPOs       = $conn->query("SELECT COUNT(*) c FROM purchase_orders WHERE status='PENDING'")->fetch_assoc()['c'];
 
 // CHART DATA: Status Distribution
@@ -29,15 +28,32 @@ $stat_transit   = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='I
 $stat_arrived   = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='ARRIVED'")->fetch_assoc()['c'];
 $stat_delivered = $conn->query("SELECT COUNT(*) c FROM shipments WHERE status='DELIVERED'")->fetch_assoc()['c'];
 
-// ================== DYNAMIC CHART DATA: WEEKLY VOLUME ==================
-// 1. Initialize last 7 days with 0
+// --- TRANSPORT MODE SPLIT ---
+$modeQuery = $conn->query("SELECT transport_mode, COUNT(*) as c FROM shipments GROUP BY transport_mode");
+$modeLabels = [];
+$modeData = [];
+while($row = $modeQuery->fetch_assoc()) {
+    $modeLabels[] = $row['transport_mode'];
+    $modeData[] = $row['c'];
+}
+
+// --- TOP 5 DESTINATIONS ---
+$destQuery = $conn->query("SELECT destination, COUNT(*) as c FROM shipments GROUP BY destination ORDER BY c DESC LIMIT 5");
+$destLabels = [];
+$destData = [];
+while($row = $destQuery->fetch_assoc()) {
+    $shortDest = explode(',', $row['destination'])[0]; 
+    $destLabels[] = $shortDest;
+    $destData[] = $row['c'];
+}
+
+// ================== WEEKLY VOLUME ==================
 $volumeData = [];
 for ($i = 6; $i >= 0; $i--) {
     $date = date('Y-m-d', strtotime("-$i days"));
     $volumeData[$date] = 0;
 }
 
-// 2. Query actual data
 $volQuery = $conn->query("
     SELECT DATE(created_at) as d, COUNT(*) as c 
     FROM shipments 
@@ -45,18 +61,16 @@ $volQuery = $conn->query("
     GROUP BY DATE(created_at)
 ");
 
-// 3. Fill in real numbers
 while ($row = $volQuery->fetch_assoc()) {
     if (isset($volumeData[$row['d']])) {
         $volumeData[$row['d']] = $row['c'];
     }
 }
 
-// 4. Prepare for Chart.js
 $chartLabels = [];
 $chartCounts = [];
 foreach ($volumeData as $date => $count) {
-    $chartLabels[] = date('D', strtotime($date)); // e.g., "Mon"
+    $chartLabels[] = date('D', strtotime($date));
     $chartCounts[] = $count;
 }
 
@@ -66,7 +80,7 @@ $recent = $conn->query("
     FROM shipments s
     JOIN purchase_orders p ON s.po_id = p.po_id
     ORDER BY s.created_at DESC
-    LIMIT 5
+    LIMIT 10
 ");
 
 // ================== HISTORY FEED ==================
@@ -87,189 +101,61 @@ $history = $conn->query("
 /* ================= HELPER: STATUS BADGE ================= */
 function getStatusBadge($status)
 {
-    if ($status === 'BOOKED') return '<span class="badge rounded-pill bg-secondary">BOOKED</span>';
-    if ($status === 'CONSOLIDATED') return '<span class="badge rounded-pill bg-info text-dark">CONSOLIDATED</span>';
-    if ($status === 'READY_TO_DISPATCH') return '<span class="badge rounded-pill bg-warning text-dark">READY</span>';
-    if ($status === 'IN_TRANSIT') return '<span class="badge rounded-pill bg-primary"><i class="bi bi-truck-flat"></i> MOVING</span>';
-    if ($status === 'ARRIVED') return '<span class="badge rounded-pill bg-warning text-dark"><i class="bi bi-geo-alt"></i> ARRIVED</span>';
-    if ($status === 'DELIVERED') return '<span class="badge rounded-pill bg-success"><i class="bi bi-check-lg"></i> DONE</span>';
+    if ($status === 'BOOKED') return '<span class="badge bg-secondary-subtle text-secondary border border-secondary px-2 rounded-pill">BOOKED</span>';
+    if ($status === 'CONSOLIDATED') return '<span class="badge bg-info-subtle text-info border border-info px-2 rounded-pill">CONSOLIDATED</span>';
+    if ($status === 'READY_TO_DISPATCH') return '<span class="badge bg-warning-subtle text-warning border border-warning px-2 rounded-pill">READY</span>';
+    if ($status === 'IN_TRANSIT') return '<span class="badge bg-primary-subtle text-primary border border-primary px-2 rounded-pill"><i class="bi bi-truck"></i> MOVING</span>';
+    if ($status === 'ARRIVED') return '<span class="badge bg-warning text-dark border border-warning px-2 rounded-pill"><i class="bi bi-geo-alt"></i> ARRIVED</span>';
+    if ($status === 'DELIVERED') return '<span class="badge bg-success-subtle text-success border border-success px-2 rounded-pill"><i class="bi bi-check-lg"></i> DONE</span>';
     return '<span class="badge bg-light text-dark border">' . $status . '</span>';
 }
 ?>
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - CORE 1</title>
+    <title>Analytics Dashboard | Core 1</title>
 
     <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="../assets/dark-mode.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
     <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
 
-
     <style>
-        /* Global Font & Transition */
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            transition: background-color 0.3s, color 0.3s;
-        }
-
-        /* Layout Fixes */
-        body.sidebar-closed .sidebar {
-            margin-left: -250px;
-        }
-
-        body.sidebar-closed .content {
-            margin-left: 0;
-            width: 100%;
-        }
-
-        .content {
-            width: calc(100% - 250px);
-            margin-left: 250px;
-            transition: all 0.3s;
-        }
-
-        @media (max-width: 768px) {
-            .content {
-                width: 100%;
-                margin-left: 0;
-            }
-        }
-
-        /* 🟢 STICKY HEADER FIX */
-        .header {
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            background-color: #fff;
-            border-bottom: 1px solid #e3e6f0;
-            padding: 15px 25px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-
-        /* Dark Mode Variables */
-        :root {
-            --dark-bg: #121212;
-            --dark-card: #1e1e1e;
-            --dark-text: #e0e0e0;
-            --dark-border: #333333;
-            --dark-table-head: #2c2c2c;
-            --dark-hover: rgba(255, 255, 255, 0.05);
-        }
-
-        /* Dark Mode Styles */
-        body.dark-mode {
-            background-color: var(--dark-bg) !important;
-            color: var(--dark-text) !important;
-        }
-
-        /* Dark Mode Sticky Header */
-        body.dark-mode .header {
-            background-color: var(--dark-card) !important;
-            border-bottom: 1px solid var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .card {
-            background-color: var(--dark-card);
-            border: 1px solid var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .card-header {
-            background-color: rgba(255, 255, 255, 0.05) !important;
-            border-bottom: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .card-header h5 {
-            color: #fff !important;
-        }
-
-        /* Tables */
-        body.dark-mode .table {
-            color: var(--dark-text);
-            border-color: var(--dark-border);
-            --bs-table-bg: transparent;
-        }
-
-        body.dark-mode .table .table-light {
-            background-color: var(--dark-table-head);
-            color: #fff;
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .table .table-light th {
-            background-color: var(--dark-table-head);
-            color: #fff;
-            border-bottom: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .table tbody td {
-            background-color: var(--dark-card);
-            color: var(--dark-text);
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .table-hover tbody tr:hover td {
-            background-color: var(--dark-hover);
-            color: #fff;
-        }
-
-        body.dark-mode .table .text-primary {
-            color: #6ea8fe !important;
-        }
-
-        /* List Group */
-        body.dark-mode .list-group-item {
-            background-color: var(--dark-card);
-            border-color: var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        /* Dropdowns & Forms */
-        body.dark-mode .form-control,
-        body.dark-mode .form-select,
-        body.dark-mode input[type="search"] {
-            background-color: #2c2c2c;
-            border-color: var(--dark-border);
-            color: #fff;
-        }
-
-        body.dark-mode .dropdown-menu {
-            background-color: var(--dark-card);
-            border: 1px solid var(--dark-border);
-        }
-
-        body.dark-mode .dropdown-item {
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .dropdown-item:hover {
-            background-color: #333;
-            color: #fff;
-        }
-
-        body.dark-mode .text-muted {
-            color: #a0a0a0 !important;
-        }
-
-        /* KPI Cards (No Border) */
-        .kpi-card {
-            border: none;
-        }
-
-        /* Chart Canvas Height */
-        canvas {
-            max-height: 250px;
-        }
+        :root { --primary-color: #4e73df; --secondary-color: #858796; }
+        body { font-family: 'Inter', 'Segoe UI', sans-serif; background-color: #f8f9fc; }
+        
+        /* Layout */
+        body.sidebar-closed .sidebar { margin-left: -250px; }
+        body.sidebar-closed .content { margin-left: 0; width: 100%; }
+        .content { width: calc(100% - 250px); margin-left: 250px; transition: all 0.3s ease; }
+        @media (max-width: 768px) { .content { width: 100%; margin-left: 0; } }
+        
+        /* Header */
+        .header { background: #fff; border-bottom: 1px solid #e3e6f0; padding: 1rem 1.5rem; position: sticky; top: 0; z-index: 100; box-shadow: 0 .15rem 1.75rem 0 rgba(58,59,69,.15); }
+        
+        /* Cards & KPI */
+        .card { border: none; border-radius: 0.75rem; box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1); transition: transform 0.2s; }
+        .kpi-card:hover { transform: translateY(-3px); }
+        .kpi-icon { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 1.2rem; }
+        
+        /* Table */
+        .table thead th { background-color: #f8f9fc; color: #858796; font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #e3e6f0; }
+        .table tbody td { vertical-align: middle; font-size: 0.9rem; padding: 1rem 0.75rem; }
+        
+        /* Dark Mode */
+        body.dark-mode { background-color: #121212; color: #e0e0e0; }
+        body.dark-mode .header, body.dark-mode .card { background-color: #1e1e1e; border-color: #333; color: #e0e0e0; }
+        body.dark-mode .table { color: #e0e0e0; --bs-table-bg: transparent; }
+        body.dark-mode .table thead th { background-color: #2c2c2c; border-color: #444; color: #ccc; }
+        body.dark-mode .table tbody td { border-color: #333; }
+        body.dark-mode .list-group-item { background-color: #1e1e1e; border-color: #333; color: #e0e0e0; }
+        
+        /* Charts */
+        canvas { max-height: 300px; }
     </style>
 </head>
 
@@ -287,175 +173,196 @@ function getStatusBadge($status)
 
     <div class="content" id="content">
 
-        <div class="header">
+        <div class="header d-flex align-items-center justify-content-between">
             <div class="d-flex align-items-center">
-                <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
-                <h2 class="mb-0 ms-2" id="pageTitle">Dashboard <span class="system-title text-primary small">| CORE 1</span></h2>
-            </div>
-
-            <div class="theme-toggle-container">
-                <div class="d-flex align-items-center me-3">
-                    <span class="theme-label me-2 small">Dark Mode</span>
-                    <label class="theme-switch">
-                        <input type="checkbox" id="themeToggle">
-                        <span class="slider"></span>
-                    </label>
+                <div class="hamburger text-secondary me-3" id="hamburger" style="cursor: pointer;"><i class="bi bi-list fs-4"></i></div>
+                <div>
+                    <h4 class="mb-0 fw-bold text-dark-emphasis">Analytics Dashboard</h4>
+                    <small class="text-muted"><?= date('l, F j, Y') ?></small>
                 </div>
-
+            </div>
+            
+            <div class="d-flex align-items-center gap-3">
+                <div class="theme-toggle-container d-flex align-items-center">
+                    <i class="bi bi-moon-stars me-2 text-muted"></i>
+                    <label class="theme-switch"><input type="checkbox" id="themeToggle"><span class="slider"></span></label>
+                </div>
                 <div class="dropdown">
-                    <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle"></i>
-                        <span class="d-none d-md-block small"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
+                    <button class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2 rounded-pill px-3" type="button" data-bs-toggle="dropdown">
+                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; font-size: 0.8rem;">
+                            <?= strtoupper(substr($_SESSION['full_name'] ?? 'A', 0, 1)) ?>
+                        </div>
+                        <span class="d-none d-md-block small fw-semibold"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow">
-                        <li><a class="dropdown-item" href="#"><i class="bi bi-gear me-2"></i> Settings</a></li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()"><i class="bi bi-box-arrow-right me-2"></i> Logout</a></li>
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0">
+                        <li><a class="dropdown-item" href="#">Settings</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()">Logout</a></li>
                     </ul>
                 </div>
             </div>
         </div>
 
-        <div class="row g-3 mb-4 mt-4">
-            <div class="col-md-3">
-                <div class="card kpi-card bg-gradient-primary h-100 text-white">
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase mb-1 small">Active Shipments</h6>
-                            <h2 class="mb-0 fw-bold"><?= $kpiShipments ?></h2>
-                        </div>
-                        <i class="bi bi-truck kpi-icon"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card kpi-card bg-gradient-info h-100 text-white">
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase mb-1 small">Consolidations</h6>
-                            <h2 class="mb-0 fw-bold"><?= $kpiConso ?></h2>
-                        </div>
-                        <i class="bi bi-layers-half kpi-icon"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card kpi-card bg-gradient-warning h-100 text-white">
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase mb-1 small">Pending POs</h6>
-                            <h2 class="mb-0 fw-bold"><?= $kpiPOs ?></h2>
-                        </div>
-                        <i class="bi bi-clipboard-data kpi-icon"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card kpi-card bg-gradient-success h-100 text-white">
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase mb-1 small">Total Events</h6>
-                            <h2 class="mb-0 fw-bold"><?= $kpiEvents ?></h2>
-                        </div>
-                        <i class="bi bi-activity kpi-icon"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-3 mb-4">
-            <div class="col-lg-8">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-transparent py-3">
-                        <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-bar-chart-line me-2"></i> Weekly Volume</h5>
-                    </div>
-                    <div class="card-body">
-                        <canvas id="volumeChart"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-4">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-transparent py-3">
-                        <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-pie-chart me-2"></i> Shipment Status</h5>
-                    </div>
-                    <div class="card-body d-flex justify-content-center align-items-center">
-                        <canvas id="statusChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-3">
-            <div class="col-lg-8">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-transparent py-3">
-                        <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-clock-history me-2"></i> Recent Activity</h5>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive p-3">
-                            <table class="table table-hover align-middle" id="dashboardTable">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Code</th>
-                                        <th>Route</th>
-                                        <th>Status</th>
-                                        <th>Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php while ($r = $recent->fetch_assoc()): ?>
-                                        <tr>
-                                            <td class="fw-bold text-primary"><?= $r['shipment_code'] ?></td>
-                                            <td>
-                                                <div class="small text-truncate" style="max-width: 150px;"><?= $r['origin'] ?></div>
-                                                <div class="small text-truncate" style="max-width: 150px;"><?= $r['destination'] ?></div>
-                                            </td>
-                                            <td><?= getStatusBadge($r['status']) ?></td>
-                                            <td class="small"><?= date("M d", strtotime($r['created_at'])) ?></td>
-                                        </tr>
-                                    <?php endwhile; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-4">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-transparent py-3">
-                        <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-broadcast me-2"></i> Operational Feed</h5>
-                    </div>
-                    <div class="list-group list-group-flush">
-                        <?php if ($history->num_rows > 0): ?>
-                            <?php while ($h = $history->fetch_assoc()): ?>
-                                <div class="list-group-item border-0 border-bottom py-3">
-                                    <div class="d-flex w-100 justify-content-between mb-1">
-                                        <small class="fw-bold text-primary"><?= $h['shipment_code'] ?></small>
-                                        <small class="text-muted" style="font-size: 0.7rem;">
-                                            <?= date("H:i", strtotime($h['updated_at'])) ?>
-                                        </small>
-                                    </div>
-                                    <p class="mb-1 small">
-                                        <i class="bi bi-record-circle text-success me-1"></i>
-                                        Status: <strong><?= $h['status'] ?></strong>
-                                    </p>
-                                    <small class="text-muted"><i class="bi bi-pin-map"></i> <?= $h['location'] ?></small>
-                                </div>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <div class="text-center py-4 text-muted">
-                                <i class="bi bi-inbox fs-1"></i><br>No recent events
+        <div class="container-fluid p-4">
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="card kpi-card h-100 border-start border-4 border-primary">
+                        <div class="card-body d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="text-uppercase fw-bold text-primary small mb-1">Active Shipments</div>
+                                <div class="h3 mb-0 fw-bold text-dark"><?= $kpiShipments ?></div>
                             </div>
-                        <?php endif; ?>
+                            <div class="kpi-icon bg-primary bg-opacity-10 text-primary"><i class="bi bi-truck"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card kpi-card h-100 border-start border-4 border-info">
+                        <div class="card-body d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="text-uppercase fw-bold text-info small mb-1">Consolidations</div>
+                                <div class="h3 mb-0 fw-bold text-dark"><?= $kpiConso ?></div>
+                            </div>
+                            <div class="kpi-icon bg-info bg-opacity-10 text-info"><i class="bi bi-layers-half"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card kpi-card h-100 border-start border-4 border-warning">
+                        <div class="card-body d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="text-uppercase fw-bold text-warning small mb-1">Pending POs</div>
+                                <div class="h3 mb-0 fw-bold text-dark"><?= $kpiPOs ?></div>
+                            </div>
+                            <div class="kpi-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-clipboard-data"></i></div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
+            <div class="row g-4 mb-4">
+                <div class="col-lg-8">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-clock-history me-2"></i>Recent Activity</h6>
+                            <a href="shipments.php" class="btn btn-sm btn-light border">View All</a>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0" id="dashboardTable">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Tracking Code</th>
+                                            <th>Route</th>
+                                            <th>Sender</th>
+                                            <th>Status</th>
+                                            <th>Updated</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php while ($r = $recent->fetch_assoc()): ?>
+                                            <tr>
+                                                <td class="fw-bold text-primary"><?= $r['shipment_code'] ?></td>
+                                                <td>
+                                                    <div class="d-flex align-items-center small">
+                                                        <span class="text-truncate" style="max-width: 80px;"><?= explode(',', $r['origin'])[0] ?></span>
+                                                        <i class="bi bi-arrow-right mx-2 text-muted"></i>
+                                                        <span class="text-truncate" style="max-width: 80px;"><?= explode(',', $r['destination'])[0] ?></span>
+                                                    </div>
+                                                </td>
+                                                <td class="small"><?= $r['sender_name'] ?></td>
+                                                <td><?= getStatusBadge($r['status']) ?></td>
+                                                <td class="small text-muted"><?= date("M d, H:i", strtotime($r['created_at'])) ?></td>
+                                            </tr>
+                                        <?php endwhile; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="mb-0 fw-bold text-secondary"><i class="bi bi-broadcast me-2"></i>Operational Feed</h6>
+                        </div>
+                        <div class="list-group list-group-flush">
+                            <?php if ($history->num_rows > 0): ?>
+                                <?php while ($h = $history->fetch_assoc()): ?>
+                                    <div class="list-group-item border-0 border-bottom py-3">
+                                        <div class="d-flex w-100 justify-content-between mb-1">
+                                            <span class="fw-bold text-dark small"><?= $h['shipment_code'] ?></span>
+                                            <small class="text-muted" style="font-size: 0.75rem;"><?= date("H:i", strtotime($h['updated_at'])) ?></small>
+                                        </div>
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <span class="badge bg-light text-dark border small"><?= $h['status'] ?></span>
+                                            <small class="text-muted text-truncate" style="max-width: 150px;">
+                                                <i class="bi bi-pin-map-fill me-1"></i> <?= explode(',', $h['location'])[0] ?>
+                                            </small>
+                                        </div>
+                                    </div>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <div class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox fs-1 opacity-50"></i><br>No recent events
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-8">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between">
+                            <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-bar-chart-line me-2"></i>Weekly Volume</h6>
+                            <small class="text-muted">Last 7 Days</small>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="volumeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-lg-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="mb-0 fw-bold text-secondary"><i class="bi bi-airplane-engines me-2"></i>Transport Mode</h6>
+                        </div>
+                        <div class="card-body d-flex justify-content-center align-items-center">
+                            <canvas id="modeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-map me-2"></i>Top 5 Destinations</h6>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="destChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="mb-0 fw-bold text-secondary"><i class="bi bi-pie-chart me-2"></i>Status Breakdown</h6>
+                        </div>
+                        <div class="card-body d-flex justify-content-center align-items-center">
+                            <canvas id="statusChart" style="max-height: 250px;"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -469,18 +376,16 @@ function getStatusBadge($status)
 
     <script>
         $(document).ready(function() {
-            // DataTables
+            // Initialize DataTables for better interactivity
             $('#dashboardTable').DataTable({
                 "pageLength": 5,
                 "lengthChange": false,
-                "searching": false,
+                "searching": true,
                 "ordering": false,
-                "info": false
+                "language": { "search": "", "searchPlaceholder": "Search activity..." }
             });
 
-            // ================== CHARTS CONFIG ==================
-
-            // 1. Status Distribution (Doughnut)
+            // --- CHART 1: STATUS DISTRIBUTION (Doughnut) ---
             const ctxStatus = document.getElementById('statusChart').getContext('2d');
             new Chart(ctxStatus, {
                 type: 'doughnut',
@@ -488,25 +393,19 @@ function getStatusBadge($status)
                     labels: ['Booked', 'In Transit', 'Arrived', 'Delivered'],
                     datasets: [{
                         data: [<?= $stat_booked ?>, <?= $stat_transit ?>, <?= $stat_arrived ?>, <?= $stat_delivered ?>],
-                        backgroundColor: ['#6c757d', '#0d6efd', '#ffc107', '#198754'],
+                        backgroundColor: ['#858796', '#4e73df', '#f6c23e', '#1cc88a'],
                         borderWidth: 0
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                color: '#adb5bd'
-                            }
-                        }
-                    }
+                    plugins: { legend: { position: 'right' } },
+                    cutout: '65%'
                 }
             });
 
-            // 2. Weekly Volume (Bar) - NOW DYNAMIC!
+            // --- CHART 2: WEEKLY VOLUME (Bar) ---
             const ctxVolume = document.getElementById('volumeChart').getContext('2d');
             new Chart(ctxVolume, {
                 type: 'bar',
@@ -515,43 +414,67 @@ function getStatusBadge($status)
                     datasets: [{
                         label: 'Shipments',
                         data: <?= json_encode($chartCounts) ?>,
-                        backgroundColor: '#0d6efd',
-                        borderRadius: 4
+                        backgroundColor: '#4e73df',
+                        borderRadius: 4,
+                        barThickness: 30
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                color: '#333'
-                            },
-                            ticks: {
-                                stepSize: 1,
-                                color: '#adb5bd'
-                            }
-                        },
-                        x: {
-                            grid: {
-                                display: false
-                            },
-                            ticks: {
-                                color: '#adb5bd'
-                            }
-                        }
+                        y: { beginAtZero: true, grid: { borderDash: [2] } },
+                        x: { grid: { display: false } }
                     },
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    }
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // --- CHART 3: TRANSPORT MODE (Pie) ---
+            const ctxMode = document.getElementById('modeChart').getContext('2d');
+            new Chart(ctxMode, {
+                type: 'pie',
+                data: {
+                    labels: <?= json_encode($modeLabels) ?>,
+                    datasets: [{
+                        data: <?= json_encode($modeData) ?>,
+                        backgroundColor: ['#36b9cc', '#e74a3b', '#4e73df', '#f6c23e'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+
+            // --- CHART 4: TOP DESTINATIONS (Horizontal Bar) ---
+            const ctxDest = document.getElementById('destChart').getContext('2d');
+            new Chart(ctxDest, {
+                type: 'bar',
+                data: {
+                    labels: <?= json_encode($destLabels) ?>,
+                    datasets: [{
+                        label: 'Shipments',
+                        data: <?= json_encode($destData) ?>,
+                        backgroundColor: '#1cc88a',
+                        borderRadius: 4,
+                        barThickness: 20
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Makes it horizontal
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { beginAtZero: true, grid: { display: false } },
+                        y: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false } }
                 }
             });
         });
     </script>
-
 </body>
-
 </html>

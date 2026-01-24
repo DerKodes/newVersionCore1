@@ -1,20 +1,17 @@
 <?php
-/**
- * AUTH CHECK
- * Blocks access to protected pages if user is not logged in
- */
-
-function requireStaff() {
-    if (!isset($_SESSION['user_role']) || !in_array($_SESSION['user_role'], ['admin', 'staff'])) {
-        die("Access denied: Staff or admin required.");
-    }
-}
-
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-if (!isset($_SESSION['user_id'])) {
-    header("Location: ../login/login.php");
+// Check if the user has completed BOTH steps
+// login_success is only set to TRUE inside verify_otp.php
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['login_success'])) {
+    // If they only have temp_user, they are still in OTP stage
+    if (isset($_SESSION['temp_user'])) {
+        header("Location: ../login/verify_otp.php");
+    } else {
+        header("Location: ../login/login.php");
+    }
     exit();
 }
+?>

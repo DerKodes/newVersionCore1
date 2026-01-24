@@ -13,26 +13,15 @@ $isAdmin = ($role === 'admin' || $role === 'administrator');
 // ================= API HELPER FUNCTION ================= //
 function getLogisticsAssets()
 {
-    // Ensure this IP is correct and reachable
-    $apiUrl = "http://192.168.1.31/logistics1/api/assets.php?action=cargos_vehicles";
-
+    $apiUrl = "http://192.168.100.130/logistics1/api/assets.php?action=cargos_vehicles";
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $apiUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-
+    curl_setopt($ch, CURLOPT_TIMEOUT, 2); 
     $response = curl_exec($ch);
-
-    if (curl_errno($ch)) {
-        return null; // Silently fail if API is down
-    }
-
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-
-    if ($httpCode === 200 && $response) {
-        return json_decode($response, true);
-    }
+    if ($httpCode === 200 && $response) return json_decode($response, true);
     return null;
 }
 
@@ -55,7 +44,6 @@ if ($apiAssets && isset($apiAssets['success']) && $apiAssets['success']) {
 /* ================= CREATE CONSOLIDATION ================= */
 if ($isAdmin && isset($_POST['create_consolidation'])) {
     $vehicle_asset = $_POST['vehicle_asset'] ?? 'Unknown';
-
     if (empty($_POST['shipments'])) die("Select at least one shipment.");
 
     $trip_no = "TRIP-" . date("Ymd") . "-" . strtoupper(substr(uniqid(), -5));
@@ -63,14 +51,12 @@ if ($isAdmin && isset($_POST['create_consolidation'])) {
     $user_id = $_SESSION['user_id'];
 
     $conn->begin_transaction();
-
     try {
         /* Reference */
         $stmt = $conn->prepare("SELECT transport_mode, origin, destination FROM shipments WHERE shipment_id = ? AND consolidated = 0 FOR UPDATE");
         $stmt->bind_param("i", $shipments[0]);
         $stmt->execute();
         $first = $stmt->get_result()->fetch_assoc();
-
         if (!$first) throw new Exception("Invalid shipment selection.");
 
         /* Validate */
@@ -80,10 +66,6 @@ if ($isAdmin && isset($_POST['create_consolidation'])) {
             $stmt->execute();
             $s = $stmt->get_result()->fetch_assoc();
 
-            // FIXED VALIDATION:
-            // 1. We still require the same Transport Mode (e.g. can't mix Air and Sea).
-            // 2. We REMOVED the strict 'strcasecmp' check for Origin/Destination.
-            //    This allows the AI to group "Manila" and "Pasay" together into one trip (Milk Run).
             if (empty($s['transport_mode']) || $s['transport_mode'] !== $first['transport_mode']) {
                 throw new Exception("Shipments must have the same Transport Mode (e.g., all Land).");
             }
@@ -152,105 +134,70 @@ if ($isAdmin && isset($_POST['deconsolidate'])) {
     exit();
 }
 
+// --- KPI QUERIES ---
+$kpi = $conn->query("
+    SELECT 
+        (SELECT COUNT(*) FROM consolidations WHERE status = 'OPEN' OR status = 'DISPATCH') as active_trips,
+        (SELECT COUNT(*) FROM shipments WHERE consolidated = 1 AND status != 'DELIVERED') as in_transit_items,
+        (SELECT COUNT(*) FROM shipments WHERE status = 'BOOKED' AND consolidated = 0) as pending_allocations
+")->fetch_assoc();
+
+
 function getStatusBadge($status)
 {
-    if ($status === 'OPEN') return '<span class="badge rounded-pill bg-success">OPEN</span>';
-    if ($status === 'DISPATCH' || $status === 'READY_TO_DISPATCH') return '<span class="badge rounded-pill bg-warning text-dark">READY</span>';
-    if ($status === 'DECONSOLIDATED') return '<span class="badge rounded-pill bg-secondary">DECONSOLIDATED</span>';
-    return '<span class="badge bg-light text-dark border">' . $status . '</span>';
+    $status = strtoupper(trim($status ?? ''));
+    if ($status === 'OPEN') return '<span class="badge bg-success-subtle text-success border border-success px-3 rounded-pill"><i class="bi bi-unlock me-1"></i> OPEN</span>';
+    if ($status === 'DISPATCH' || $status === 'READY_TO_DISPATCH') return '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning px-3 rounded-pill"><i class="bi bi-truck me-1"></i> READY</span>';
+    if ($status === 'DECONSOLIDATED') return '<span class="badge bg-secondary-subtle text-secondary border border-secondary px-3 rounded-pill">DECONSOLIDATED</span>';
+    if ($status === '') return '<span class="badge bg-light text-dark border">UNKNOWN</span>';
+    return '<span class="badge bg-light text-dark border">' . htmlspecialchars($status) . '</span>';
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consolidation</title>
+    <title>Consolidation Management | Core 1</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="../assets/dark-mode.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
     <link rel="shortcut icon" href="../assets/slate.png" type="image/x-icon">
 
     <style>
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            transition: background-color 0.3s, color 0.3s;
-        }
-
-        body.sidebar-closed .sidebar {
-            margin-left: -250px;
-        }
-
-        body.sidebar-closed .content {
-            margin-left: 0;
-            width: 100%;
-        }
-
-        .content {
-            width: calc(100% - 250px);
-            margin-left: 250px;
-            transition: all 0.3s;
-        }
-
-        @media (max-width: 768px) {
-            .content {
-                width: 100%;
-                margin-left: 0;
-            }
-        }
-
-        .header {
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            background-color: #fff;
-            border-bottom: 1px solid #e3e6f0;
-            padding: 15px 25px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-
+        :root { --primary-color: #4e73df; --secondary-color: #858796; }
+        body { font-family: 'Inter', 'Segoe UI', sans-serif; background-color: #f8f9fc; }
+        
+        /* Layout */
+        body.sidebar-closed .sidebar { margin-left: -250px; }
+        body.sidebar-closed .content { margin-left: 0; width: 100%; }
+        .content { width: calc(100% - 250px); margin-left: 250px; transition: all 0.3s ease; }
+        @media (max-width: 768px) { .content { width: 100%; margin-left: 0; } }
+        
+        /* Header */
+        .header { background: #fff; border-bottom: 1px solid #e3e6f0; padding: 1rem 1.5rem; position: sticky; top: 0; z-index: 100; box-shadow: 0 .15rem 1.75rem 0 rgba(58,59,69,.15); }
+        
+        /* Cards */
+        .card { border: none; border-radius: 0.75rem; box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.1); transition: transform 0.2s; }
+        .kpi-card:hover { transform: translateY(-3px); }
+        .kpi-icon { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 1.2rem; }
+        
+        /* Table */
+        .table thead th { background-color: #f8f9fc; color: #858796; font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #e3e6f0; }
+        .table tbody td { vertical-align: middle; font-size: 0.9rem; padding: 0.75rem; }
+        
         /* Dark Mode */
-        :root {
-            --dark-bg: #121212;
-            --dark-card: #1e1e1e;
-            --dark-text: #e0e0e0;
-            --dark-border: #333333;
-        }
-
-        body.dark-mode {
-            background-color: var(--dark-bg) !important;
-            color: var(--dark-text) !important;
-        }
-
-        body.dark-mode .card,
-        body.dark-mode .header {
-            background-color: var(--dark-card);
-            border-color: var(--dark-border);
-            color: var(--dark-text);
-        }
-
-        body.dark-mode .table {
-            color: var(--dark-text);
-            border-color: var(--dark-border);
-        }
-
-        body.dark-mode .form-control,
-        body.dark-mode .form-select {
-            background-color: #2c2c2c;
-            border-color: var(--dark-border);
-            color: #fff;
-        }
-
-        .access-denied-blur {
-            filter: blur(8px);
-            pointer-events: none;
-            opacity: 0.6;
-        }
+        body.dark-mode { background-color: #121212; color: #e0e0e0; }
+        body.dark-mode .header, body.dark-mode .card, body.dark-mode .modal-content { background-color: #1e1e1e; border-color: #333; color: #e0e0e0; }
+        body.dark-mode .table { color: #e0e0e0; --bs-table-bg: transparent; }
+        body.dark-mode .table thead th { background-color: #2c2c2c; border-color: #444; color: #ccc; }
+        body.dark-mode .table tbody td { border-color: #333; }
+        body.dark-mode .form-control, body.dark-mode .form-select { background-color: #2c2c2c; border-color: #444; color: #fff; }
+        
+        .access-denied-blur { filter: blur(8px); pointer-events: none; opacity: 0.6; }
     </style>
 </head>
 
@@ -267,187 +214,232 @@ function getStatusBadge($status)
     </div>
 
     <div class="content <?= !$isAdmin ? 'access-denied-blur' : '' ?>" id="content">
-        <div class="header">
+        <div class="header d-flex align-items-center justify-content-between">
             <div class="d-flex align-items-center">
-                <div class="hamburger" id="hamburger"><i class="bi bi-list"></i></div>
-                <h2 class="mb-0 ms-2" id="pageTitle">Consolidation Management</h2>
+                <div class="hamburger text-secondary me-3" id="hamburger" style="cursor: pointer;"><i class="bi bi-list fs-4"></i></div>
+                <h4 class="mb-0 fw-bold text-dark-emphasis">Consolidation Management</h4>
             </div>
-            <div class="theme-toggle-container">
-                <div class="d-flex align-items-center me-3">
-                    <span class="theme-label me-2 small">Dark Mode</span>
+            
+            <div class="d-flex align-items-center gap-3">
+                <div class="theme-toggle-container d-flex align-items-center">
+                    <i class="bi bi-moon-stars me-2 text-muted"></i>
                     <label class="theme-switch"><input type="checkbox" id="themeToggle"><span class="slider"></span></label>
                 </div>
                 <div class="dropdown">
-                    <button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle"></i>
-                        <span class="d-none d-md-block small"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
+                    <button class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2 rounded-pill px-3" type="button" data-bs-toggle="dropdown">
+                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; font-size: 0.8rem;">
+                            <?= strtoupper(substr($_SESSION['full_name'] ?? 'A', 0, 1)) ?>
+                        </div>
+                        <span class="d-none d-md-block small fw-semibold"><?= htmlspecialchars($_SESSION['full_name'] ?? 'Admin') ?></span>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0">
                         <li><a class="dropdown-item" href="#">Settings</a></li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
+                        <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()">Logout</a></li>
                     </ul>
                 </div>
             </div>
         </div>
 
-        <div class="row g-4 mt-4">
-            <div class="col-lg-5">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-white py-3">
-                        <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-plus-square me-2"></i> Create New Consolidation</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-3 p-2 border rounded bg-light">
+        <div class="container-fluid p-4">
+            
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="card kpi-card h-100 border-start border-4 border-primary">
+                        <div class="card-body d-flex align-items-center justify-content-between">
                             <div>
-                                <strong class="text-primary"><i class="bi bi-cpu-fill"></i> AI Route Planner</strong>
-                                <div id="aiStatus" class="small text-muted" style="font-size: 0.8rem;">Ready to optimize</div>
+                                <div class="text-uppercase fw-bold text-primary small mb-1">Active Trips</div>
+                                <div class="h3 mb-0 fw-bold text-dark"><?= $kpi['active_trips'] ?></div>
                             </div>
-                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="runAiOptimization()">
-                                <i class="bi bi-magic"></i> Auto-Group
-                            </button>
+                            <div class="kpi-icon bg-primary bg-opacity-10 text-primary"><i class="bi bi-map"></i></div>
                         </div>
-
-                        <?php
-                        $eligible = $conn->query("
-                            SELECT s.* FROM shipments s 
-                            WHERE s.status IN ('BOOKED') AND s.consolidated = 0 
-                            AND NOT EXISTS (SELECT 1 FROM consolidation_shipments cs WHERE cs.shipment_id = s.shipment_id)
-                            ORDER BY origin, destination
-                        ");
-
-                        if (!$eligible) {
-                            echo "<div class='alert alert-danger'>Database Error: " . $conn->error . "</div>";
-                        }
-                        ?>
-                        <form method="POST">
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">Select Asset (From Logistic 1)</label>
-                                <select name="vehicle_asset" class="form-select" required>
-                                    <option value="">-- Choose Cargo or Vehicle --</option>
-                                    <?php if (empty($vehicles)): ?>
-                                        <option value="" disabled>No assets available from API</option>
-                                    <?php else: ?>
-                                        <?php foreach ($vehicles as $v): ?>
-                                            <option value="<?= htmlspecialchars($v['name']) ?>" <?= $v['status'] !== 'Operational' ? 'disabled' : '' ?>>
-                                                <?= htmlspecialchars($v['name']) ?> (<?= htmlspecialchars($v['type']) ?>) <?= $v['status'] !== 'Operational' ? '- ' . $v['status'] : '' ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                    <optgroup label="Offline Backups">
-                                        <option value="Generic Truck A">Generic Truck A</option>
-                                        <option value="Generic Van B">Generic Van B</option>
-                                    </optgroup>
-                                </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card kpi-card h-100 border-start border-4 border-info">
+                        <div class="card-body d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="text-uppercase fw-bold text-info small mb-1">Items in Transit</div>
+                                <div class="h3 mb-0 fw-bold text-dark"><?= $kpi['in_transit_items'] ?></div>
                             </div>
-                            <label class="form-label fw-bold">Select Shipments to Group</label>
-                            <div class="table-responsive border rounded mb-3" style="max-height: 400px; overflow-y: auto;">
-                                <table class="table table-hover mb-0" id="shipmentSelectionTable">
-                                    <thead class="table-light sticky-top">
-                                        <tr>
-                                            <th style="width: 40px;"><i class="bi bi-check-lg"></i></th>
-                                            <th>Code</th>
-                                            <th>Route</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php if ($eligible && $eligible->num_rows > 0): ?>
-                                            <?php while ($s = $eligible->fetch_assoc()): ?>
-                                                <tr>
-                                                    <td><input class="form-check-input" type="checkbox" name="shipments[]" value="<?= $s['shipment_id'] ?>"></td>
-                                                    <td class="small fw-bold text-primary"><?= $s['shipment_code'] ?></td>
-                                                    <td class="small">
-                                                        <div class="text-truncate origin-text" style="max-width: 150px;"><?= $s['origin'] ?></div>
-                                                        <i class="bi bi-arrow-down text-muted"></i>
-                                                        <div class="text-truncate destination-text" style="max-width: 150px;"><?= $s['destination'] ?></div>
-                                                    </td>
-                                                </tr>
-                                            <?php endwhile; ?>
-                                        <?php else: ?>
-                                            <tr>
-                                                <td colspan="3" class="text-center text-muted py-4">No eligible shipments found.</td>
-                                            </tr>
-                                        <?php endif; ?>
-                                    </tbody>
-                                </table>
+                            <div class="kpi-icon bg-info bg-opacity-10 text-info"><i class="bi bi-box-seam"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card kpi-card h-100 border-start border-4 border-warning">
+                        <div class="card-body d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="text-uppercase fw-bold text-warning small mb-1">Pending Allocation</div>
+                                <div class="h3 mb-0 fw-bold text-dark"><?= $kpi['pending_allocations'] ?></div>
                             </div>
-                            <button name="create_consolidation" class="btn btn-primary w-100"><i class="bi bi-box-seam me-2"></i> Consolidate Selected</button>
-                        </form>
+                            <div class="kpi-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-inboxes"></i></div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-lg-7">
-                <div class="card shadow-sm border-0 border-start border-danger border-4 mb-4">
-                    <div class="card-body">
-                        <h5 class="card-title text-danger mb-3"><i class="bi bi-exclamation-triangle me-2"></i> Deconsolidate (Emergency)</h5>
-                        <form method="POST" class="row g-2 align-items-center" onsubmit="return confirmFormAction(event, 'This will revert all shipments to BOOKED status.', 'warning')">
-                            <div class="col-md-5">
-                                <select name="consolidation_id" class="form-select form-select-sm" required>
-                                    <option value="">Select Consolidation...</option>
-                                    <?php
-                                    $deconList = $conn->query("
-                                            SELECT c.consolidation_id, c.consolidation_code, c.vehicle_set 
-                                            FROM consolidations c
-                                            LEFT JOIN hmbl h ON h.consolidation_id = c.consolidation_id
-                                            WHERE c.status = 'OPEN' AND h.hmbl_id IS NULL
-                                    ");
-                                    if ($deconList) {
-                                        while ($c = $deconList->fetch_assoc()):
-                                    ?>
-                                            <option value="<?= $c['consolidation_id'] ?>"><?= $c['consolidation_code'] ?> (<?= htmlspecialchars($c['vehicle_set']) ?>)</option>
-                                    <?php
-                                        endwhile;
-                                    }
-                                    ?>
-                                </select>
+            <div class="row g-4">
+                <div class="col-lg-5">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-diagram-3 me-2"></i>Route Optimizer</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-primary bg-primary-subtle border-primary-subtle d-flex justify-content-between align-items-center mb-3">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-grow spinner-grow-sm text-primary me-2" role="status" id="aiLoading" style="display:none;"></div>
+                                    <div>
+                                        <strong class="text-primary-emphasis"><i class="bi bi-cpu-fill me-1"></i> AI Planner</strong>
+                                        <div id="aiStatus" class="small text-muted" style="font-size: 0.8rem;">Ready to optimize routes</div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="runAiOptimization()">
+                                    <i class="bi bi-magic me-1"></i> Auto-Group
+                                </button>
                             </div>
-                            <div class="col-md-5"><input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason for breakdown..." required></div>
-                            <div class="col-md-2"><button name="deconsolidate" class="btn btn-outline-danger btn-sm w-100">Apply</button></div>
-                        </form>
+
+                            <?php
+                            $eligible = $conn->query("
+                                SELECT s.* FROM shipments s 
+                                WHERE s.status IN ('BOOKED') AND s.consolidated = 0 
+                                AND NOT EXISTS (SELECT 1 FROM consolidation_shipments cs WHERE cs.shipment_id = s.shipment_id)
+                                ORDER BY origin, destination
+                            ");
+                            ?>
+                            
+                            <form method="POST">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small text-muted text-uppercase">Logistics Asset</label>
+                                    <select name="vehicle_asset" class="form-select" required>
+                                        <option value="">-- Select Cargo/Vehicle --</option>
+                                        <?php if (!empty($vehicles)): ?>
+                                            <?php foreach ($vehicles as $v): ?>
+                                                <option value="<?= htmlspecialchars($v['name']) ?>" <?= $v['status'] !== 'Operational' ? 'disabled' : '' ?>>
+                                                    <?= htmlspecialchars($v['name']) ?> (<?= htmlspecialchars($v['type']) ?>)
+                                                </option>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                        <optgroup label="Manual Entry">
+                                            <option value="Generic Truck A">Generic Truck A</option>
+                                            <option value="Generic Van B">Generic Van B</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+
+                                <label class="form-label fw-bold small text-muted text-uppercase">Available Shipments</label>
+                                <div class="table-responsive border rounded mb-3 bg-white" style="max-height: 400px; overflow-y: auto;">
+                                    <table class="table table-hover table-sm mb-0" id="shipmentSelectionTable">
+                                        <thead class="table-light sticky-top">
+                                            <tr>
+                                                <th style="width: 40px;" class="text-center"><i class="bi bi-check-lg"></i></th>
+                                                <th>Code</th>
+                                                <th>Route Info</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php if ($eligible && $eligible->num_rows > 0): ?>
+                                                <?php while ($s = $eligible->fetch_assoc()): ?>
+                                                    <tr>
+                                                        <td class="text-center"><input class="form-check-input" type="checkbox" name="shipments[]" value="<?= $s['shipment_id'] ?>"></td>
+                                                        <td class="small fw-bold text-primary"><?= $s['shipment_code'] ?></td>
+                                                        <td class="small">
+                                                            <div class="d-flex align-items-center">
+                                                                <span class="text-truncate fw-semibold origin-text" data-address="<?= htmlspecialchars($s['origin']) ?>" style="max-width: 80px;" title="<?= htmlspecialchars($s['origin']) ?>"><?= explode(',', $s['origin'])[0] ?></span>
+                                                                
+                                                                <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                                                                
+                                                                <span class="text-truncate fw-semibold destination-text" data-address="<?= htmlspecialchars($s['destination']) ?>" style="max-width: 80px;" title="<?= htmlspecialchars($s['destination']) ?>"><?= explode(',', $s['destination'])[0] ?></span>
+                                                            </div>
+                                                            <div class="text-muted" style="font-size: 0.75rem;"><?= $s['transport_mode'] ?></div>
+                                                        </td>
+                                                    </tr>
+                                                <?php endwhile; ?>
+                                            <?php else: ?>
+                                                <tr><td colspan="3" class="text-center text-muted py-4 small">No eligible shipments found.</td></tr>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button name="create_consolidation" class="btn btn-success w-100 py-2 fw-bold shadow-sm">
+                                    <i class="bi bi-check-circle me-2"></i> Create Consolidation
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
 
-                <div class="card shadow-sm border-0 mb-4">
-                    <div class="card-header bg-white py-3">
-                        <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-list-task me-2"></i> Active Consolidations</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle" id="consoTable">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Code</th>
-                                        <th>Route</th>
-                                        <th>Status</th>
-                                        <th>Assigned Asset</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php $list = $conn->query("SELECT * FROM consolidations ORDER BY created_at DESC"); ?>
-                                    <?php if ($list): ?>
-                                        <?php while ($c = $list->fetch_assoc()): ?>
-                                            <tr>
-                                                <td class="fw-bold text-primary">
-                                                    <?= $c['consolidation_code'] ?>
-                                                    <div class="small text-muted fw-normal"><?= $c['trip_no'] ?></div>
-                                                </td>
-                                                <td>
-                                                    <div class="small text-truncate" style="max-width: 120px;"><?= $c['origin'] ?></div>
-                                                    <i class="bi bi-arrow-right text-muted" style="font-size: 0.7rem;"></i>
-                                                    <div class="small text-truncate" style="max-width: 120px;"><?= $c['destination'] ?></div>
-                                                </td>
-                                                <td><?= getStatusBadge($c['status']) ?></td>
-                                                <td><span class="badge bg-dark"><i class="bi bi-truck me-1"></i> <?= htmlspecialchars($c['vehicle_set']) ?></span></td>
-                                            </tr>
+                <div class="col-lg-7">
+                    
+                    <div class="card shadow-sm border-0 border-top border-4 border-danger mb-4">
+                        <div class="card-body py-3">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <h6 class="text-danger fw-bold m-0"><i class="bi bi-cone-striped me-2"></i>Trip Breakdown (Emergency)</h6>
+                            </div>
+                            <form method="POST" class="row g-2 align-items-center" onsubmit="return confirmFormAction(event, 'This will revert shipments to BOOKED.', 'warning')">
+                                <div class="col-md-5">
+                                    <select name="consolidation_id" class="form-select form-select-sm" required>
+                                        <option value="">Select Open Trip...</option>
+                                        <?php
+                                        $deconList = $conn->query("SELECT c.consolidation_id, c.consolidation_code, c.vehicle_set FROM consolidations c LEFT JOIN hmbl h ON h.consolidation_id = c.consolidation_id WHERE c.status = 'OPEN' AND h.hmbl_id IS NULL");
+                                        while ($c = $deconList->fetch_assoc()): ?>
+                                            <option value="<?= $c['consolidation_id'] ?>"><?= $c['consolidation_code'] ?></option>
                                         <?php endwhile; ?>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
+                                    </select>
+                                </div>
+                                <div class="col-md-5">
+                                    <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason for breakdown..." required>
+                                </div>
+                                <div class="col-md-2">
+                                    <button name="deconsolidate" class="btn btn-outline-danger btn-sm w-100 fw-bold">Apply</button>
+                                </div>
+                            </form>
                         </div>
                     </div>
+
+                    <div class="card shadow-sm">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="mb-0 fw-bold text-secondary"><i class="bi bi-truck me-2"></i>Active Fleet Consolidations</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle" id="consoTable" width="100%">
+                                    <thead>
+                                        <tr>
+                                            <th>Trip Reference</th>
+                                            <th>Route & Asset</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php
+                                        $query = "SELECT c.*, COUNT(cs.shipment_id) as total_shipments, GROUP_CONCAT(s.shipment_code SEPARATOR ', ') as included_codes FROM consolidations c LEFT JOIN consolidation_shipments cs ON c.consolidation_id = cs.consolidation_id LEFT JOIN shipments s ON cs.shipment_id = s.shipment_id GROUP BY c.consolidation_id ORDER BY c.created_at DESC";
+                                        $list = $conn->query($query);
+                                        ?>
+                                        <?php if ($list): while ($c = $list->fetch_assoc()): ?>
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-bold text-primary"><?= $c['consolidation_code'] ?></div>
+                                                    <div class="small text-muted font-monospace"><?= $c['trip_no'] ?></div>
+                                                    <span class="badge bg-light text-dark border mt-1" title="Items"><i class="bi bi-box-seam me-1"></i> <?= $c['total_shipments'] ?></span>
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex align-items-center mb-1">
+                                                        <span class="fw-semibold small text-truncate" style="max-width: 100px;"><?= explode(',', $c['origin'])[0] ?></span>
+                                                        <i class="bi bi-arrow-right mx-2 text-muted small"></i>
+                                                        <span class="fw-semibold small text-truncate" style="max-width: 100px;"><?= explode(',', $c['destination'])[0] ?></span>
+                                                    </div>
+                                                    <div class="small text-muted"><i class="bi bi-truck me-1"></i> <?= htmlspecialchars($c['vehicle_set']) ?></div>
+                                                </td>
+                                                <td><?= getStatusBadge($c['status']) ?></td>
+                                            </tr>
+                                        <?php endwhile; endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
@@ -456,10 +448,8 @@ function getStatusBadge($status)
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
     <script src="../scripts/ai_consolidation.js"></script>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="../assets/main.js"></script>
@@ -467,11 +457,10 @@ function getStatusBadge($status)
     <script>
         $(document).ready(function() {
             $('#consoTable').DataTable({
-                "order": [
-                    [0, "desc"]
-                ],
+                "order": [[0, "desc"]],
                 "pageLength": 5,
-                "lengthChange": false
+                "lengthChange": false,
+                "language": { "search": "_INPUT_", "searchPlaceholder": "Search trips..." }
             });
         });
 
@@ -480,14 +469,12 @@ function getStatusBadge($status)
                 Swal.fire({
                     icon: 'error',
                     title: 'Access Denied',
-                    html: '<b>Administrator Access Only.</b><br>You do not have permission to use this module.',
-                    allowOutsideClick: false,
+                    text: 'Administrator Access Only.',
                     showConfirmButton: false,
-                    footer: '<a href="dashboard.php" class="btn btn-primary btn-sm">Return to Dashboard</a>'
+                    footer: '<a href="dashboard.php" class="btn btn-primary btn-sm">Return</a>'
                 });
             });
         <?php endif; ?>
     </script>
 </body>
-
 </html>

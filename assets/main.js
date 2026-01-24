@@ -1,12 +1,17 @@
 document.addEventListener("DOMContentLoaded", function () {
   // =========================================================
-  // 1. INJECT LOADER HTML & CSS (Professional "Breathing" Effect)
+  // 1. INJECT PREMIUM LOADER (Glassmorphism & Progress Bar)
   // =========================================================
   const loaderHTML = `
       <div id="global-loader">
           <div class="loader-content">
-              <img src="../assets/slate.png" alt="Loading..." class="loader-logo">
-              <div class="loader-text">SYNCING DATA...</div>
+              <div class="loader-logo-wrapper">
+                  <img src="../assets/slate.png" alt="Loading..." class="loader-logo">
+              </div>
+              <div class="loader-progress-wrap">
+                  <div class="loader-progress-bar"></div>
+              </div>
+              <div class="loader-text">IDENTIFYING MODULE...</div>
           </div>
       </div>
   `;
@@ -14,61 +19,82 @@ document.addEventListener("DOMContentLoaded", function () {
 
   const loaderStyle = document.createElement("style");
   loaderStyle.innerHTML = `
-      /* LOADER CONTAINER */
       #global-loader {
           position: fixed;
           top: 0; left: 0; width: 100%; height: 100%;
-          background-color: #ffffff; /* FORCE WHITE BACKGROUND */
-          z-index: 99999;
+          background: rgba(255, 255, 255, 0.8);
+          backdrop-filter: blur(15px) saturate(180%);
+          -webkit-backdrop-filter: blur(15px) saturate(180%);
+          z-index: 999999;
           display: flex; justify-content: center; align-items: center;
-          transition: opacity 0.5s ease, visibility 0.5s;
+          transition: opacity 0.4s ease, visibility 0.4s;
+          opacity: 0; visibility: hidden;
+      }
+
+      body.dark-mode #global-loader {
+          background: rgba(18, 18, 18, 0.8);
+      }
+
+      #global-loader.active {
           opacity: 1; visibility: visible;
       }
 
-      /* CONTENT WRAPPER */
       .loader-content {
           text-align: center;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
+          display: flex; flex-direction: column; align-items: center;
+          gap: 25px;
       }
 
-      /* LOGO ANIMATION (BREATHING + BLUR - NO ROTATION) */
+      .loader-logo-wrapper {
+          position: relative;
+          padding: 15px;
+      }
+
       .loader-logo {
-          width: 85px;
-          height: auto;
-          margin-bottom: 20px;
-          animation: logo-breathe 2.5s infinite ease-in-out;
+          width: 90px; height: auto;
+          filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1));
+          animation: premium-pulse 2s infinite ease-in-out;
       }
 
-      /* TEXT STYLE */
+      .loader-progress-wrap {
+          width: 160px; height: 3px;
+          background: rgba(0, 0, 0, 0.05);
+          border-radius: 10px; overflow: hidden;
+          position: relative;
+      }
+
+      body.dark-mode .loader-progress-wrap { background: rgba(255, 255, 255, 0.1); }
+
+      .loader-progress-bar {
+          width: 40%; height: 100%;
+          background: linear-gradient(90deg, #4e73df, #224abe);
+          border-radius: 10px;
+          position: absolute; left: -40%;
+          animation: loader-slide 1.5s infinite ease-in-out;
+      }
+
       .loader-text {
-          font-family: 'Segoe UI', sans-serif;
-          font-weight: 700;
-          font-size: 13px;
-          letter-spacing: 3px;
-          color: #0d6efd; /* Primary Blue */
+          font-family: 'Inter', 'Segoe UI', sans-serif;
+          font-weight: 800;
+          font-size: 11px;
+          letter-spacing: 4px;
+          color: #4e73df;
           text-transform: uppercase;
-          opacity: 0.8;
-          animation: text-fade 2.5s infinite ease-in-out;
+          opacity: 0.9;
       }
 
-      /* HIDE STATE */
-      #global-loader.hidden {
-          opacity: 0;
-          visibility: hidden;
+      body.dark-mode .loader-text { color: #7591e8; }
+
+      @keyframes premium-pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.08); opacity: 0.8; }
+          100% { transform: scale(1); opacity: 1; }
       }
 
-      /* KEYFRAMES */
-      @keyframes logo-breathe {
-          0% { transform: scale(1); filter: blur(0px); opacity: 1; }
-          50% { transform: scale(1.08); filter: blur(1.5px); opacity: 0.85; } /* Slight Blur */
-          100% { transform: scale(1); filter: blur(0px); opacity: 1; }
-      }
-
-      @keyframes text-fade {
-          0%, 100% { opacity: 0.8; }
-          50% { opacity: 0.4; }
+      @keyframes loader-slide {
+          0% { left: -40%; width: 20%; }
+          50% { left: 30%; width: 40%; }
+          100% { left: 110%; width: 20%; }
       }
   `;
   document.head.appendChild(loaderStyle);
@@ -180,32 +206,57 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // =========================================================
-  // 5. LOADER LOGIC
+  // 5. LOADER LOGIC (Switching Modules Only)
   // =========================================================
   const loader = document.getElementById("global-loader");
+  const isModuleSwitch = sessionStorage.getItem("module_switching") === "true";
 
-  // Hide loader after delay
-  setTimeout(() => {
-    loader.classList.add("hidden");
-  }, 700); // 0.7s to let the user see the branding
+  if (isModuleSwitch) {
+    loader.classList.add("active");
+    sessionStorage.removeItem("module_switching");
+    setTimeout(() => {
+      loader.classList.remove("active");
+    }, 850);
+  }
 
-  // Show loader on navigation
+  // Show loader on navigation (ONLY IF SWITCHING TO A DIFFERENT PHP MODULE)
   document.querySelectorAll("a").forEach((link) => {
     link.addEventListener("click", function (e) {
-      const target = this.getAttribute("href");
+      const href = this.getAttribute("href");
 
       if (
-        !target ||
-        target.startsWith("#") ||
-        target.startsWith("javascript") ||
+        !href ||
+        href.startsWith("#") ||
+        href.startsWith("javascript") ||
         this.getAttribute("target") === "_blank" ||
-        e.ctrlKey ||
-        e.metaKey
+        e.ctrlKey || e.metaKey
       ) {
         return;
       }
 
-      loader.classList.remove("hidden");
+      const currentPath = window.location.pathname.split("/").pop() || "index.php";
+      let targetPath = "";
+      try {
+        const url = new URL(href, window.location.origin + window.location.pathname);
+        targetPath = url.pathname.split("/").pop();
+      } catch (err) {
+        targetPath = href.split("?")[0].split("/").pop();
+      }
+
+      // If switching to a different file (module)
+      if (currentPath !== targetPath && targetPath.endsWith(".php")) {
+        sessionStorage.setItem("module_switching", "true");
+
+        // Set dynamic text based on link text
+        let linkLabel = this.innerText.trim();
+        if (linkLabel && linkLabel.length < 25) {
+          loader.querySelector(".loader-text").innerText = `OPENING ${linkLabel.toUpperCase()}...`;
+        } else {
+          loader.querySelector(".loader-text").innerText = "LOADING MODULE...";
+        }
+
+        loader.classList.add("active");
+      }
     });
   });
 });
@@ -216,7 +267,7 @@ document.addEventListener("DOMContentLoaded", function () {
 window.addEventListener("pageshow", function (event) {
   if (event.persisted) {
     const loader = document.getElementById("global-loader");
-    if (loader) loader.classList.add("hidden");
+    if (loader) loader.classList.remove("active");
   }
 });
 
@@ -249,7 +300,7 @@ function confirmLogout() {
       if (loader) {
         // Change text for logout
         loader.querySelector(".loader-text").innerText = "CLOSING SESSION...";
-        loader.classList.remove("hidden");
+        loader.classList.add("active");
       }
       window.location.href = "../login/logout.php";
     }
@@ -273,7 +324,10 @@ function confirmFormAction(event, title = "Are you sure?", icon = "warning") {
   }).then((result) => {
     if (result.isConfirmed) {
       const loader = document.getElementById("global-loader");
-      if (loader) loader.classList.remove("hidden");
+      if (loader) {
+        loader.querySelector(".loader-text").innerText = "PROCESSING...";
+        loader.classList.add("active");
+      }
       form.submit();
     }
   });

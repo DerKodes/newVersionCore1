@@ -1,4 +1,4 @@
-// 1. MOCK DATA (Normalized for stability)
+// 1. MOCK DATA
 const historyData = {
   distances: [10, 20, 40, 60, 100, 150],
   times: [30, 45, 80, 110, 160, 240],
@@ -22,16 +22,34 @@ async function trainModel(model) {
   return model;
 }
 
-// 3. GEOCODING HELPER
+// 3. GEOCODING HELPER WITH CACHE
+const geoCache = {};
+
 async function geocodeAddress(address) {
+  if (geoCache[address]) return geoCache[address];
+
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-    const response = await fetch(url, {
-      headers: { "User-Agent": "LogisticsApp/1.0" },
-    });
-    const data = await response.json();
-    if (data && data.length > 0)
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    const url = `../api/geocode.php?q=${encodeURIComponent(address)}`;
+    const response = await fetch(url);
+    const text = await response.text();
+
+    try {
+      const data = JSON.parse(text);
+      let result = null;
+
+      if (Array.isArray(data) && data.length > 0) {
+        result = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } else if (data.lat && data.lon) {
+        result = { lat: parseFloat(data.lat), lng: parseFloat(data.lon) };
+      }
+
+      if (result) {
+        geoCache[address] = result;
+        return result;
+      }
+    } catch (e) {
+      console.error("JSON error", e);
+    }
   } catch (error) {
     console.error(error);
   }
@@ -41,61 +59,95 @@ async function geocodeAddress(address) {
 // 4. MAIN FUNCTION
 async function runAiOptimization() {
   const statusDiv = document.getElementById("aiStatus");
+  const loadingSpinner = document.getElementById("aiLoading");
+
   if (typeof tf === "undefined") {
     statusDiv.innerHTML = "Error: TF.js missing.";
     return;
   }
 
-  statusDiv.innerHTML =
-    '<span class="spinner-border spinner-border-sm"></span> AI Thinking...';
+  if (loadingSpinner) loadingSpinner.style.display = "inline-block";
+  statusDiv.innerHTML = "Gathering shipments...";
 
   // A. Gather Data
   const rows = document.querySelectorAll("#shipmentSelectionTable tbody tr");
   const shipments = [];
 
-  for (let i = 0; i < rows.length; i++) {
-    // FIX: TARGET DESTINATION INSTEAD OF ORIGIN
-    const destDiv = rows[i].querySelector(".destination-text");
-    const checkbox = rows[i].querySelector('input[type="checkbox"]');
+  rows.forEach((row) => {
+    const originEl = row.querySelector(".origin-text");
+    const destEl = row.querySelector(".destination-text");
+    const checkbox = row.querySelector('input[type="checkbox"]');
 
-    if (destDiv && checkbox) {
+    // Uncheck all initially
+    if (checkbox) checkbox.checked = false;
+    if (row) row.style.backgroundColor = "";
+
+    if (originEl && destEl && checkbox) {
+      let origin =
+        originEl.getAttribute("data-address") || originEl.innerText.trim();
+      let dest = destEl.getAttribute("data-address") || destEl.innerText.trim();
+
+      if (!origin.toLowerCase().includes("philippines"))
+        origin += ", Philippines";
+      if (!dest.toLowerCase().includes("philippines")) dest += ", Philippines";
+
       shipments.push({
-        element: rows[i],
+        element: row,
         checkbox: checkbox,
-        address: destDiv.innerText.trim(), // Group by Destination
-        coords: null,
+        originAddr: origin,
+        destAddr: dest,
+        originCoords: null,
+        destCoords: null,
       });
+    }
+  });
+
+  if (shipments.length < 2) {
+    statusDiv.innerHTML = "Select 2+ shipments.";
+    if (loadingSpinner) loadingSpinner.style.display = "none";
+    return;
+  }
+
+  // B. Geocode Both Ends
+  let validCount = 0;
+  for (let [idx, s] of shipments.entries()) {
+    statusDiv.innerHTML = `Geocoding ${idx + 1}/${shipments.length}...`;
+
+    const [o, d] = await Promise.all([
+      geocodeAddress(s.originAddr),
+      geocodeAddress(s.destAddr),
+    ]);
+
+    s.originCoords = o;
+    s.destCoords = d;
+
+    if (o && d) validCount++;
+
+    if (!geoCache[s.originAddr] || !geoCache[s.destAddr]) {
+      await new Promise((r) => setTimeout(r, 400));
     }
   }
 
-  if (shipments.length === 0) {
-    statusDiv.innerHTML = "No shipments.";
-    return;
-  }
+  const validShipments = shipments.filter(
+    (s) => s.originCoords !== null && s.destCoords !== null,
+  );
 
-  // B. Geocode
-  let validCount = 0;
-  for (let [idx, s] of shipments.entries()) {
-    statusDiv.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Geocoding ${idx + 1}/${shipments.length}...`;
-    let search = s.address.toLowerCase().includes("philippines")
-      ? s.address
-      : s.address + ", Philippines";
-    s.coords = await geocodeAddress(search);
-    if (s.coords) validCount++;
-    await new Promise((r) => setTimeout(r, 800));
-  }
-
-  const validShipments = shipments.filter((s) => s.coords !== null);
   if (validShipments.length < 2) {
-    statusDiv.innerHTML = "Need 2+ valid addresses.";
+    statusDiv.innerHTML = "Not enough valid addresses.";
+    if (loadingSpinner) loadingSpinner.style.display = "none";
     return;
   }
 
-  // C. K-Means Clustering
-  statusDiv.innerHTML = "Clustering...";
+  // C. K-Means (4 Dimensions)
+  statusDiv.innerHTML = "Clustering by Route...";
   const assignments = tf.tidy(() => {
     const tensorData = tf.tensor2d(
-      validShipments.map((s) => [s.coords.lat, s.coords.lng]),
+      validShipments.map((s) => [
+        s.originCoords.lat,
+        s.originCoords.lng,
+        s.destCoords.lat,
+        s.destCoords.lng,
+      ]),
     );
     const k = Math.min(2, validShipments.length);
 
@@ -104,25 +156,23 @@ async function runAiOptimization() {
       .slice(0, k);
     let centroids = tf.gather(tensorData, indices);
 
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       const dists = tensorData
         .expandDims(1)
         .sub(centroids.expandDims(0))
         .square()
         .sum(2);
       const nearest = dists.argMin(1);
-
       const newRows = [];
       for (let c = 0; c < k; c++) {
         const mask = nearest.equal(c).asType("float32").expandDims(1);
         const count = mask.sum();
         if (count.dataSync()[0] === 0)
-          newRows.push(centroids.slice([c, 0], [1, 2]));
+          newRows.push(centroids.slice([c, 0], [1, 4]));
         else newRows.push(tensorData.mul(mask).sum(0).div(count).expandDims(0));
       }
       centroids = tf.concat(newRows, 0);
     }
-
     const finalDists = tensorData
       .expandDims(1)
       .sub(centroids.expandDims(0))
@@ -137,11 +187,8 @@ async function runAiOptimization() {
 
   const colors = ["#e3f2fd", "#fff3e0", "#e8f5e9"];
   const sets = ["A", "B", "C"];
-  const hub = { lat: 14.5995, lng: 120.9842 }; // Manila
+  const hub = { lat: 14.5995, lng: 120.9842 };
 
-  const groupAddresses = { 0: [], 1: [], 2: [] };
-
-  // E. Vehicle Selection
   const vehicleSelect = document.querySelector('select[name="vehicle_asset"]');
   let availableVehicles = [];
   if (vehicleSelect) {
@@ -161,16 +208,19 @@ async function runAiOptimization() {
 
   validShipments.forEach((s, idx) => {
     const gid = assignments[idx];
-    groupAddresses[gid].push(s.address);
-
     s.element.style.backgroundColor = colors[gid % 3];
+
+    // --- KEY FIX HERE ---
+    // Only select items belonging to Group 0 (The first, cohesive group)
+    // This ensures we don't select all data, only the "Best Match" trip.
     s.checkbox.checked = gid === 0;
 
     const dist =
       Math.sqrt(
-        Math.pow(s.coords.lat - hub.lat, 2) +
-          Math.pow(s.coords.lng - hub.lng, 2),
+        Math.pow(s.originCoords.lat - s.destCoords.lat, 2) +
+          Math.pow(s.originCoords.lng - s.destCoords.lng, 2),
       ) * 111;
+
     const pred = model.predict(tf.tensor2d([dist], [1, 1]));
     let mins = pred.dataSync()[0].toFixed(0);
     if (isNaN(mins)) mins = "45";
@@ -180,12 +230,12 @@ async function runAiOptimization() {
         ? availableVehicles[gid % availableVehicles.length].text
         : "Generic";
 
-    const cell = s.element.querySelector("td:nth-child(2)");
+    const cell = s.element.querySelector("td:nth-child(3)");
     if (cell.querySelector(".ai-badge"))
       cell.querySelector(".ai-badge").remove();
 
     cell.innerHTML += `<div class="badge bg-dark mt-1 ai-badge d-block text-start p-2">
-            <div class="fw-bold text-warning"><i class="bi bi-geo-alt-fill"></i> Set ${sets[gid]} (Dest)</div>
+            <div class="fw-bold text-warning"><i class="bi bi-geo-alt-fill"></i> Set ${sets[gid]} (Route)</div>
             <div class="small"><i class="bi bi-clock"></i> ~${mins} min</div>
             <div class="small text-info"><i class="bi bi-truck"></i> ${assignedVehicle}</div>
         </div>`;
@@ -196,6 +246,7 @@ async function runAiOptimization() {
     vehicleSelect.style.border = "2px solid #198754";
   }
 
+  if (loadingSpinner) loadingSpinner.style.display = "none";
   statusDiv.innerHTML =
-    '<i class="bi bi-check-circle-fill text-success"></i> Grouped by Destination!';
+    '<i class="bi bi-check-circle-fill text-success"></i> Best route selected!';
 }

@@ -8,7 +8,8 @@
 
 // API Configuration
 // Make sure this matches the Core 2 IP and Folder Path exactly
-define('CORE2_API_BASE_URL', 'http://192.168.1.15/NEWCORE2026/api/booking_api.php');
+define('CORE2_API_BASE_URL', 'http://192.168.100.130/core2/api/booking_api.php');
+// Result: http://192.168.100.130/core2/api/bookings
 define('CORE2_API_KEY', 'Log1'); // Ensure this matches Core 2's expected key
 
 class Core2Integration
@@ -200,4 +201,3 @@ class Core2Integration
         return self::makeAPICall("/booking/$id", 'DELETE');
     }
 }
-?>

@@ -1,11 +1,11 @@
 <?php
 header("Content-Type: application/json");
 
-// FIX 1: Add error reporting so you can see if something goes wrong
+// Enable error reporting for debugging
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 include "db.php";
-include "auth.php";
+// include "auth.php"; // Uncomment if you need API Key authentication
 
 // ================= VALIDATE JSON =================
 $data = json_decode(file_get_contents("php://input"), true);
@@ -16,10 +16,15 @@ if (!$data) {
     exit();
 }
 
+// FIX: Check if contract_number is provided since we removed auto-generation
+if (empty($data['contract_number'])) {
+    http_response_code(400);
+    echo json_encode(["error" => "Contract number is required"]);
+    exit();
+}
+
 try {
     // ================= INSERT PO =================
-    // FIX 2: Removed 'specific_address' (doesn't exist in DB)
-    // FIX 3: Added lat/lng columns so the Map works later
     $stmt = $conn->prepare("
         INSERT INTO purchase_orders
         (
@@ -37,39 +42,40 @@ try {
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ");
 
-    $contract = "PO-" . strtoupper(uniqid());
+    // FIX: Use the contract number from the input Data
+    $contract = $data['contract_number'];
 
-    // FIX 4: Handle optional bank name (Cash payments might have no bank)
+    // Handle optional fields
     $bank_name = $data['bank_name'] ?? "";
     $package_desc = $data['package_description'] ?? "";
 
-    // FIX 5: Corrected Type String (22 variables)
+    // Bind parameters
     // i = integer, s = string, d = double (decimal)
     $stmt->bind_param(
         "isssssssdddddssssdssds", 
-        $data['user_id'],           // i
-        $contract,                  // s
-        $data['sender_name'],       // s
-        $data['sender_contact'],    // s
-        $data['receiver_name'],     // s
-        $data['receiver_contact'],  // s
-        $data['origin_address'],    // s
+        $data['user_id'],       // i
+        $contract,              // s (Now using input data)
+        $data['sender_name'],   // s
+        $data['sender_contact'],// s
+        $data['receiver_name'], // s
+        $data['receiver_contact'],// s
+        $data['origin_address'],// s
         $data['destination_address'],// s
         
-        $data['origin_lat'],        // d (Saved to DB!)
-        $data['origin_lng'],        // d
-        $data['destination_lat'],   // d
-        $data['destination_lng'],   // d
+        $data['origin_lat'],    // d
+        $data['origin_lng'],    // d
+        $data['destination_lat'],// d
+        $data['destination_lng'],// d
         
-        $data['weight'],            // d
-        $data['package_type'],      // s
-        $package_desc,              // s
-        $data['payment_method'],    // s
-        $bank_name,                 // s
-        $data['distance_km'],       // d
-        $data['price'],             // d (Price is decimal in DB)
+        $data['weight'],        // d
+        $data['package_type'],  // s
+        $package_desc,          // s
+        $data['payment_method'],// s
+        $bank_name,             // s
+        $data['distance_km'],   // d
+        $data['price'],         // d
         
-        $data['sla_agreement'],     // s
+        $data['sla_agreement'], // s
         $data['ai_estimated_time'], // s
         $data['target_delivery_date'] // s
     );
@@ -83,7 +89,6 @@ try {
     ]);
 
 } catch (mysqli_sql_exception $e) {
-    // FIX 6: Better error message for debugging
     http_response_code(500);
     echo json_encode(["error" => "Database error: " . $e->getMessage()]);
 }
